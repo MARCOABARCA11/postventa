@@ -249,7 +249,7 @@ button,a,label,.in{touch-action:manipulation;-webkit-tap-highlight-color:transpa
   .timebox b{font-size:17px}
   .rem-main>.row.between{flex-direction:column-reverse;align-items:flex-start;gap:4px}
   .rem-main h3{font-size:15.5px}
-  .rem-actions .btn{flex:1 1 0;padding-inline:8px}
+  .rem-actions .btn{flex:1 1 calc(50% - 4px);padding-inline:8px}
   .btn-sm{min-height:42px}
   .cal-head{margin-top:14px}
   .cal-head h1{font-size:22px}
@@ -708,7 +708,7 @@ function viewInicio(){
 
   // esperando propietario
   const esperando=list.filter(x=>x.estado==="por_confirmar"&&!x.inicio).sort((a,b)=>(a.creada||"")<(b.creada||"")?-1:1);
-  if(esperando.length){h+=`<div class="section"><div class="section-head"><h2>Esperando al propietario</h2><span class="muted small num">${esperando.length}</span></div><div class="rem-list">${esperando.map(t=>{const c=casa(t.casaId),w=trab(t.trabajadorId);return `<article class="rem"><div class="rem-top" data-act="det" data-id="${t.id}" style="cursor:pointer"><div class="timebox" style="background:var(--warn-soft);color:var(--warn)"><b>?</b><span>Fecha</span></div><div class="rem-main"><h3>${esc(casaTxt(c))}</h3><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${I.user}${esc(w?w.nombre:"")}</span><span>${I.clock}${durTxt(t.duracion)}</span></div></div></div>${isAdmin()?`<div class="rem-actions"><button class="btn btn-dark btn-sm" data-act="mensaje" data-id="${t.id}">${I.link} Enviar enlace</button><button class="btn btn-ghost btn-sm" data-act="picker" data-id="${t.id}">Anotar su elección</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`:""}</article>`}).join("")}</div></div>`}
+  if(esperando.length){h+=`<div class="section"><div class="section-head"><h2>Esperando al propietario</h2><span class="muted small num">${esperando.length}</span></div><div class="rem-list">${esperando.map(t=>{const c=casa(t.casaId),w=trab(t.trabajadorId);return `<article class="rem"><div class="rem-top" data-act="det" data-id="${t.id}" style="cursor:pointer"><div class="timebox" style="background:var(--warn-soft);color:var(--warn)"><b>?</b><span>Fecha</span></div><div class="rem-main"><h3>${esc(casaTxt(c))}</h3><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${I.user}${esc(w?w.nombre:"")}</span><span>${I.clock}${durTxt(t.duracion)}</span></div></div></div>${isAdmin()?`<div class="rem-actions"><button class="btn btn-dark btn-sm" data-act="mensaje" data-id="${t.id}">${I.link} Enviar enlace</button><button class="btn btn-ghost btn-sm" data-act="picker" data-id="${t.id}">Anotar su elección</button><button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`:""}</article>`}).join("")}</div></div>`}
 
   // pendientes
   const pend=list.filter(x=>x.estado==="pendiente").sort((a,b)=>a.inicio<b.inicio?1:-1).slice(0,5);
@@ -741,6 +741,7 @@ function remCard(t){
     ${isAdmin()?`<div class="rem-actions">
       <button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button>
       <button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>
+      <button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button>
       <button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button>
     </div>`:`<div class="rem-actions"><button class="btn btn-dark btn-sm" data-act="reporte" data-id="${t.id}">Registrar avance</button><button class="btn btn-ghost btn-sm" data-act="det" data-id="${t.id}">Ver detalle</button></div>`}
   </article>`;
@@ -965,6 +966,7 @@ function openSheet(s){sheet=s;const L=document.getElementById("layer");let body=
   else if(s.kind==="avisos")body=sheetAvisos();
   else if(s.kind==="editcasa")body=sheetEditCasa(s);
   else if(s.kind==="edittrab")body=sheetEditTrab(s);
+  else if(s.kind==="duracion")body=sheetDuracion(s);
   else if(s.kind==="delcasa")body=sheetDelCasa(s);
   else if(s.kind==="picker"){const t=S.tareas.find(x=>x.id===s.id);body=t?head("Horario elegido por el propietario",esc(casaTxt(casa(t.casaId))))+pickerHtml(t,s.P,"admin"):head("Tarea")}
   const keepScroll=L.querySelector(".sheet")?.scrollTop||0;
@@ -1107,7 +1109,7 @@ function sheetDetalle(s){
   h+=`<div class="section stack">`;
   if(!readOnly){
     if(d)h+=`<button class="btn btn-lime" data-act="reporte" data-id="${t.id}">${t.estado==="finalizada"||t.estado==="pendiente"?"Actualizar reporte y fotos":"Registrar avance (finalizada / pendiente)"}</button>`;
-    if(isAdmin()&&abierta)h+=`<div class="row wrapr">${d?`<button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button><button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>`:""}<button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`;
+    if(isAdmin()&&abierta)h+=`<div class="row wrapr">${d?`<button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button><button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>`:""}<button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`;
     if(isAdmin())h+=`<button class="btn btn-dark" data-act="mensaje" data-id="${t.id}">${I.link} Enlace y mensaje para el propietario</button>`;
     if(isAdmin()&&t.estado==="pendiente")h+=`<button class="btn btn-ghost" data-act="seguimiento" data-id="${t.id}">Programar visita de seguimiento</button>`;
     if(isAdmin()&&t.estado==="cancelada")h+=`<button class="btn btn-ghost" data-act="reactivar" data-id="${t.id}">Reprogramar esta tarea</button>`;
@@ -1159,6 +1161,38 @@ async function aplicarHora(id,s,tw){
   await aviso(nt,`${cambioTrab?"Le asignaron":"Cambio de hora"}: ${t.tipo} en ${casaTxt(casa(t.casaId))}, ahora ${fCorta(parse(s))} ${hhmm(parse(s))}`);
   if(cambioTrab)await aviso(Object.assign({},t),`Se le quitó: ${t.tipo} en ${casaTxt(casa(t.casaId))}`);
   toast("Horario actualizado. Avise también al propietario.");
+  openSheet({kind:"mensaje",id});
+}
+// ---------- modificar duración ----------
+function durEval(t,m){
+  // devuelve {ok, html, mover}: valida el nuevo tiempo contra la jornada y la agenda del trabajador
+  const d=parse(t.inicio);
+  if(!d)return {ok:true,html:`<div class="alert info">La fecha la elige el propietario: verá bloques de <b>${durTxt(m)}</b>. Si ya le envió el enlace, mándeselo de nuevo.</div>`};
+  const fin=finT(d,m),fj=fueraJornada(t.inicio,m),cf=conflictos(t.trabajadorId,t.inicio,m,t.id);
+  if(!fj&&!cf.length)return {ok:true,html:`<div class="alert okk">Nuevo horario: ${hhmm(d)} – ${hhmm(fin)}</div>`};
+  const nx=proximoLibre(t.trabajadorId,startOfDay(d),m,t.id);   // busca desde el inicio de ese mismo día
+  const motivo=fj?`Con ${durTxt(m)} se sale de la jornada (terminaría ${hhmm(fin)}). Horario: ${HORARIO_TXT}.`:`Con ${durTxt(m)} choca con ${conflictMsg(cf)}.`;
+  return {ok:false,mover:nx,html:`<div class="alert bad">${motivo}${nx?`<div style="margin-top:8px"><button type="button" class="btn btn-dark btn-sm" data-act="durmover" data-id="${t.id}" data-s="${nx}">Mover a ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button></div>`:""}</div>`};
+}
+function sheetDuracion(s){
+  const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Modificar duración");
+  const d=parse(t.inicio);const sel=s.m||t.duracion;const ev=durEval(t,sel);
+  return head("Modificar duración",esc(casaTxt(casa(t.casaId)))+" · "+esc(t.tipo))+`<div class="stack">
+  <div class="card" style="padding:12px 16px"><span class="muted small">Ahora:</span> <b>${durTxt(t.duracion)}</b>${d?` <span class="muted small">· ${fCorta(d)}, ${hhmm(d)} – ${hhmm(finT(d,t.duracion))}</span>`:` <span class="muted small">· fecha por definir</span>`}</div>
+  <div class="field"><span class="lbl">Nuevo tiempo estimado</span><div class="choices">${DUR.map(m=>`<button type="button" class="choice" data-act="dusel" data-m="${m}" aria-pressed="${m===sel}">${durTxt(m)}</button>`).join("")}</div></div>
+  ${sel!==t.duracion?ev.html:""}
+  <button class="btn btn-lime" data-act="guardardur" data-id="${t.id}" style="min-height:54px" ${ev.ok&&sel!==t.duracion?"":"disabled"}>Guardar y avisar al trabajador</button></div>`;
+}
+async function guardarDur(id,m,nuevoInicio){
+  const t=S.tareas.find(x=>x.id===id);if(!t||!m)return;
+  const s=nuevoInicio||t.inicio;
+  if(s){if(fueraJornada(s,m)){toast("Ese tiempo se sale de la jornada.");return}if(conflictos(t.trabajadorId,s,m,id).length){toast("Ese horario ya está ocupado.");return}}
+  const upd={duracion:m,historial:hist(t,`Duración cambiada de ${durTxt(t.duracion)} a ${durTxt(m)}`+(nuevoInicio?` · movida a ${fCorta(parse(nuevoInicio))} ${hhmm(parse(nuevoInicio))}`:""))};
+  if(nuevoInicio)upd.inicio=nuevoInicio;
+  try{await patch("tareas",id,upd)}catch(e){return}
+  const di=parse(s);
+  await aviso(Object.assign({},t,upd),`Cambio de duración: ${t.tipo} en ${casaTxt(casa(t.casaId))}, ahora ${durTxt(m)}${di?` (${fCorta(di)} ${hhmm(di)} a ${hhmm(finT(di,m))})`:""}`);
+  toast("Duración actualizada. Avise también al propietario.");
   openSheet({kind:"mensaje",id});
 }
 function sheetCancelar(s){
@@ -1329,6 +1363,10 @@ document.addEventListener("click",async e=>{
     case "delcasa":openSheet({kind:"delcasa",id});break;
     case "confdelcasa":{const c=casa(id);el.disabled=true;try{await del("casas",id);closeSheet();toast((c?casaTxt(c):"Casa")+" eliminada.")}catch(er){el.disabled=false}break}
     case "exportar":if(db&&db.exportar)descargarRespaldo();break;
+    case "duracion":openSheet({kind:"duracion",id});break;
+    case "dusel":if(sheet&&sheet.kind==="duracion"){sheet.m=+el.dataset.m;openSheet(Object.assign(sheet,{_keep:true}))}break;
+    case "guardardur":if(sheet&&sheet.kind==="duracion"){el.disabled=true;await guardarDur(id,sheet.m)}break;
+    case "durmover":if(sheet&&sheet.kind==="duracion"){el.disabled=true;await guardarDur(id,sheet.m,el.dataset.s)}break;
     case "logout":await logout();break;
     case "edittrab":openSheet({kind:"edittrab",id});break;
     case "savetrab":{const nom=document.getElementById("et-nom").value.trim();const mail=document.getElementById("et-mail").value.trim().toLowerCase();
