@@ -1007,6 +1007,7 @@ function openSheet(s){sheet=s;const L=document.getElementById("layer");let body=
   else if(s.kind==="cancelar")body=sheetCancelar(s);
   else if(s.kind==="reporte")body=sheetReporte(s);
   else if(s.kind==="mensaje")body=sheetMensaje(s);
+  else if(s.kind==="reprog")body=sheetReprog(s);
   else if(s.kind==="drawer")body=sheetDrawer();
   else if(s.kind==="avisos")body=sheetAvisos();
   else if(s.kind==="editcasa")body=sheetEditCasa(s);
@@ -1205,6 +1206,7 @@ function sheetDetalle(s){
     if(isAdmin()&&varios&&d)h+=abiertosGrupo(t).filter(m=>m.estado==="programada").map(m=>recBtn(m,"","Recordatorio a "+nom(m).split(" ")[0]).replace("btn-sm","")).join("");
     else if(isAdmin()&&t.estado==="programada"&&d)h+=`<div class="stack" style="gap:4px">${recBtn(t).replace("btn-sm","")}${t.recordatorioEn?`<span class="muted small" style="text-align:center">Último recordatorio: ${fCorta(new Date(t.recordatorioEn))} ${hhmm(new Date(t.recordatorioEn))}</span>`:""}</div>`;
     if(isAdmin())h+=`<button class="btn btn-dark" data-act="mensaje" data-id="${t.id}">${I.link} Enlace y mensaje para el propietario</button>`;
+    if(isAdmin()&&abierta)h+=`<button class="btn btn-ghost" data-act="reprog" data-id="${t.id}">Avisar reprogramación al propietario</button>`;
     if(isAdmin()&&t.estado==="pendiente")h+=`<button class="btn btn-ghost" data-act="seguimiento" data-id="${t.id}">Programar visita de seguimiento</button>`;
     if(isAdmin()&&t.estado==="cancelada")h+=`<button class="btn btn-ghost" data-act="reactivar" data-id="${t.id}">Reprogramar esta tarea</button>`;
   }
@@ -1246,7 +1248,7 @@ function checkHora(){
 }
 async function aplicarHora(id,s,tw){
   const t=S.tareas.find(x=>x.id===id);if(!t)return;
-  tw=tw||t.trabajadorId;const cambioTrab=tw!==t.trabajadorId;
+  tw=tw||t.trabajadorId;const cambioTrab=tw!==t.trabajadorId;const iniAntes=t.estado==="programada"?t.inicio:null;
   if(cambioTrab&&grupoDe(t).some(x=>x.id!==t.id&&x.trabajadorId===tw)){toast("Ese trabajador ya está en el equipo.");return}
   if(conflictosEquipo(t,s,t.duracion,tw).length){toast("Ese horario ya está ocupado.");return}
   if(fueraJornada(s,t.duracion)){toast("Ese horario está fuera de la jornada.");return}
@@ -1263,7 +1265,9 @@ async function aplicarHora(id,s,tw){
     if(camb)await aviso(Object.assign({},m),`Se le quitó: ${m.tipo} en ${casaTxt(casa(m.casaId))}`);
   }
   toast(miembros.length>1?"Horario actualizado para todo el equipo. Avise también al propietario.":"Horario actualizado. Avise también al propietario.");
-  openSheet({kind:"mensaje",id});
+  // si una visita ya agendada cambió de fecha, se arma el aviso de reprogramación con motivo
+  if(mueve&&iniAntes)openSheet({kind:"reprog",id,antes:iniAntes,motivo:""});
+  else openSheet({kind:"mensaje",id});
 }
 // ---------- cambiar trabajador ----------
 function sheetTrab(s){
@@ -1670,6 +1674,45 @@ function sheetMensaje(s){
   <div class="row wrapr"><button class="btn btn-ghost btn-sm" data-act="copy" data-t="m-wrk${i}">Copiar</button>${wm&&wm.telefono?`<a class="btn btn-ghost btn-sm" href="${esc(wa(wm.telefono,mm))}" target="_blank" rel="noopener">Abrir en WhatsApp</a>`:""}</div></div>`}).join("")}
   <button class="btn btn-lime" data-act="det" data-id="${t.id}">Ver la tarea</button></div>`;
 }
+// ---------- aviso de reprogramación al propietario (con motivo) ----------
+const MOTIVOS_REPROG=["Lluvia","Falta de materiales","Atraso en trabajo anterior","Trabajador incapacitado","Emergencia"];
+function msgReprog(t,s){
+  const c=casa(t.casaId),d=parse(t.inicio),sinFecha=s.sinFecha||!d;
+  const antes=parse(s.antes||(sinFecha?t.inicio:""));
+  const mot=String(s.motivo||"").trim();
+  const saludo=`Hola${c&&c.propietario?" "+c.propietario.split(" ")[0]:""}, le saluda el equipo de Postventa de Ciudad del Valle.`;
+  return `${saludo}\n\nLe informamos que la visita de ${t.tipo} en ${casaTxt(c)}${antes?", programada para el "+fLarga(antes).toLowerCase()+" a las "+hhmm(antes)+",":""} debe reprogramarse.\n\nMotivo: ${mot||"____________________"}\n\n`+
+    (sinFecha?`Le contactaremos para coordinar una nueva fecha.`:`Nueva fecha: ${fLarga(d)}, de ${hhmm(d)} a ${hhmm(finT(d,t.duracion))}\n\nDetalles de la visita:\n${linkFor(t.id)}`)+
+    `\n\nDisculpe las molestias y gracias por su comprensión.`;
+}
+function sheetReprog(s){
+  const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Avisar reprogramación");
+  const c=casa(t.casaId),d=parse(t.inicio);if(!d)s.sinFecha=true;
+  const mo=msgReprog(t,s),mot=String(s.motivo||"");
+  return head("Avisar reprogramación",esc(casaTxt(c))+(c&&c.propietario?" · "+esc(c.propietario):""))+`<div class="stack">
+  ${d?`<div class="field"><span class="lbl">¿Ya tiene la nueva fecha?</span><div class="seg" role="group"><button type="button" data-act="rgmodo" data-m="con" aria-pressed="${!s.sinFecha}">Sí: ${esc(fCorta(d)+" "+hhmm(d))}</button><button type="button" data-act="rgmodo" data-m="sin" aria-pressed="${!!s.sinFecha}">Por coordinar</button></div></div>`:""}
+  <div class="field"><label for="rg-mot">Motivo de la reprogramación</label>
+  <div class="choices" style="margin-bottom:8px">${MOTIVOS_REPROG.map(m=>`<button type="button" class="choice" data-act="rgmot" data-v="${esc(m)}" aria-pressed="${mot===m}">${esc(m)}</button>`).join("")}</div>
+  <textarea id="rg-mot" class="in" placeholder="Escriba el motivo o toque una de las opciones">${esc(mot)}</textarea></div>
+  <div class="field"><span class="lbl">Mensaje para ${esc(c&&c.propietario||"el propietario")}${c&&c.telefono?" · "+esc(c.telefono):""}</span><div class="msgbox" id="m-rep">${esc(mo)}</div>
+  <div class="row wrapr"><button class="btn btn-dark btn-sm" data-act="rgcopy" data-id="${t.id}">Copiar mensaje</button><a class="btn btn-lime btn-sm" id="rg-wa" data-act="rgwa" data-id="${t.id}" href="${esc(wa(c&&c.telefono,mo))}" target="_blank" rel="noopener">Abrir en WhatsApp</a></div>
+  ${c&&c.telefono?"":`<span class="muted small">Esta casa no tiene teléfono del propietario: WhatsApp le pedirá escoger el contacto. Puede agregarlo en Casas.</span>`}</div>
+  <button class="btn btn-ghost" data-act="det" data-id="${t.id}">Ver la tarea</button></div>`;
+}
+function actualizarReprog(){
+  if(!sheet||sheet.kind!=="reprog")return;const t=S.tareas.find(x=>x.id===sheet.id);if(!t)return;
+  const ta=document.getElementById("rg-mot");if(ta)sheet.motivo=ta.value;
+  const mo=msgReprog(t,sheet),c=casa(t.casaId);
+  const box=document.getElementById("m-rep");if(box)box.textContent=mo;
+  const a=document.getElementById("rg-wa");if(a)a.href=wa(c&&c.telefono,mo);
+  document.querySelectorAll('[data-act="rgmot"]').forEach(b=>b.setAttribute("aria-pressed",b.dataset.v===sheet.motivo.trim()));
+}
+// deja el motivo en el historial (una vez por cada motivo distinto)
+async function registrarReprog(id){
+  const t=S.tareas.find(x=>x.id===id);if(!t||!sheet)return;
+  const mot=String(sheet.motivo||"").trim();if(sheet.registrado===mot)return;sheet.registrado=mot;
+  try{await patch("tareas",id,{historial:hist(t,"Aviso de reprogramación al propietario · Motivo: "+mot)})}catch(e){sheet.registrado=null}
+}
 function sheetDrawer(){
   return head("Menú")+`<div class="stack" style="gap:2px">
   <button class="drawer-item" data-act="go" data-h="">${I.home} Inicio</button>
@@ -1728,6 +1771,12 @@ document.addEventListener("click",async e=>{
     case "cancelar":openSheet({kind:"cancelar",id});break;
     case "reporte":openSheet({kind:"reporte",id,files:[]});break;
     case "mensaje":openSheet({kind:"mensaje",id});break;
+    case "reprog":openSheet({kind:"reprog",id,motivo:""});break;
+    case "rgmodo":if(sheet&&sheet.kind==="reprog"){actualizarReprog();sheet.sinFecha=el.dataset.m==="sin";openSheet(Object.assign(sheet,{_keep:true}))}break;
+    case "rgmot":{const ta=document.getElementById("rg-mot");if(ta){ta.value=el.dataset.v;actualizarReprog();if(!esMovil())ta.focus()}break}
+    case "rgcopy":case "rgwa":{actualizarReprog();if(!String(sheet&&sheet.motivo||"").trim()){e.preventDefault();toast("Escriba el motivo de la reprogramación.");document.getElementById("rg-mot")?.focus();break}
+      if(a==="rgcopy")copyText(document.getElementById("m-rep").textContent,document.getElementById("m-rep"));
+      await registrarReprog(id);break}
     case "dur":{el.parentNode.querySelectorAll(".choice").forEach(b=>b.setAttribute("aria-pressed",b===el));
       // la jornada completa solo puede empezar a las 6 a. m.
       if(+el.dataset.m===JORNADA){const hi=document.getElementById("n-hora");if(hi){hi.value=pad(WORK0)+":00";syncClock("n-hora")}}
@@ -1820,6 +1869,7 @@ document.addEventListener("input",e=>{
   if(e.target.closest("#fnueva"))checkNueva();
   if(["h-fecha","h-hora","h-trab"].includes(e.target.id))checkHora();
   if(e.target.id==="r-nota"&&sheet)sheet.dirty=true;
+  if(e.target.id==="rg-mot")actualizarReprog();
 });
 document.addEventListener("change",e=>{
   if(e.target.id==="n-condo"||e.target.id==="n-bloque"){
