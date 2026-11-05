@@ -251,7 +251,7 @@ button,a,label,.in{touch-action:manipulation;-webkit-tap-highlight-color:transpa
   .rem-main>.row.between{flex-direction:column-reverse;align-items:flex-start;gap:4px}
   .rem-main h3{font-size:15.5px}
   .rem-actions .btn{flex:1 1 calc(50% - 4px);padding-inline:8px}
-  .rem-actions .btn-rec{flex-basis:100%}
+  .rem-actions .btn-rec,.rem-actions .btn-wide{flex-basis:100%}
   .btn-sm{min-height:42px}
   .cal-head{margin-top:14px}
   .cal-head h1{font-size:22px}
@@ -719,7 +719,7 @@ function viewInicio(){
 
   // esperando propietario
   const esperando=list.filter(x=>x.estado==="por_confirmar"&&!x.inicio).sort((a,b)=>(a.creada||"")<(b.creada||"")?-1:1);
-  if(esperando.length){h+=`<div class="section"><div class="section-head"><h2>Esperando al propietario</h2><span class="muted small num">${esperando.length}</span></div><div class="rem-list">${esperando.map(t=>{const c=casa(t.casaId),w=trab(t.trabajadorId);return `<article class="rem"><div class="rem-top" data-act="det" data-id="${t.id}" style="cursor:pointer"><div class="timebox" style="background:var(--warn-soft);color:var(--warn)"><b>?</b><span>Fecha</span></div><div class="rem-main"><h3>${esc(casaTxt(c))}</h3><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${I.user}${esc(w?w.nombre:"")}</span><span>${I.clock}${durTxt(t.duracion)}</span></div></div></div>${isAdmin()?`<div class="rem-actions"><button class="btn btn-dark btn-sm" data-act="mensaje" data-id="${t.id}">${I.link} Enviar enlace</button><button class="btn btn-ghost btn-sm" data-act="picker" data-id="${t.id}">Anotar su elección</button><button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`:""}</article>`}).join("")}</div></div>`}
+  if(esperando.length){h+=`<div class="section"><div class="section-head"><h2>Esperando al propietario</h2><span class="muted small num">${esperando.length}</span></div><div class="rem-list">${esperando.map(t=>{const c=casa(t.casaId),w=trab(t.trabajadorId);return `<article class="rem"><div class="rem-top" data-act="det" data-id="${t.id}" style="cursor:pointer"><div class="timebox" style="background:var(--warn-soft);color:var(--warn)"><b>?</b><span>Fecha</span></div><div class="rem-main"><h3>${esc(casaTxt(c))}</h3><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${I.user}${esc(w?w.nombre:"")}</span><span>${I.clock}${durTxt(t.duracion)}</span></div></div></div>${isAdmin()?`<div class="rem-actions"><button class="btn btn-dark btn-sm" data-act="mensaje" data-id="${t.id}">${I.link} Enviar enlace</button><button class="btn btn-ghost btn-sm" data-act="picker" data-id="${t.id}">Anotar su elección</button><button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-ghost btn-sm" data-act="cambtrab" data-id="${t.id}">Cambiar trabajador</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`:""}</article>`}).join("")}</div></div>`}
 
   // pendientes
   const pend=list.filter(x=>x.estado==="pendiente").sort((a,b)=>a.inicio<b.inicio?1:-1).slice(0,5);
@@ -754,7 +754,8 @@ function remCard(t){
       <button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button>
       <button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>
       <button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button>
-      <button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button>
+      <button class="btn btn-ghost btn-sm" data-act="cambtrab" data-id="${t.id}">Cambiar trabajador</button>
+      <button class="btn btn-danger btn-sm btn-wide" data-act="cancelar" data-id="${t.id}">Cancelar</button>
     </div>`:`<div class="rem-actions"><button class="btn btn-dark btn-sm" data-act="reporte" data-id="${t.id}">Registrar avance</button><button class="btn btn-ghost btn-sm" data-act="det" data-id="${t.id}">Ver detalle</button></div>`}
   </article>`;
 }
@@ -979,6 +980,7 @@ function openSheet(s){sheet=s;const L=document.getElementById("layer");let body=
   else if(s.kind==="editcasa")body=sheetEditCasa(s);
   else if(s.kind==="edittrab")body=sheetEditTrab(s);
   else if(s.kind==="duracion")body=sheetDuracion(s);
+  else if(s.kind==="trab")body=sheetTrab(s);
   else if(s.kind==="delcasa")body=sheetDelCasa(s);
   else if(s.kind==="picker"){const t=S.tareas.find(x=>x.id===s.id);body=t?head("Horario elegido por el propietario",esc(casaTxt(casa(t.casaId))))+pickerHtml(t,s.P,"admin"):head("Tarea")}
   const keepScroll=L.querySelector(".sheet")?.scrollTop||0;
@@ -1121,7 +1123,7 @@ function sheetDetalle(s){
   h+=`<div class="section stack">`;
   if(!readOnly){
     if(d)h+=`<button class="btn btn-lime" data-act="reporte" data-id="${t.id}">${t.estado==="finalizada"||t.estado==="pendiente"?"Actualizar reporte y fotos":"Registrar avance (finalizada / pendiente)"}</button>`;
-    if(isAdmin()&&abierta)h+=`<div class="row wrapr">${d?`<button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button><button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>`:""}<button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`;
+    if(isAdmin()&&abierta)h+=`<div class="row wrapr">${d?`<button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button><button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>`:""}<button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-ghost btn-sm" data-act="cambtrab" data-id="${t.id}">Cambiar trabajador</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`;
     if(isAdmin()&&t.estado==="programada"&&d)h+=`<div class="stack" style="gap:4px">${recBtn(t).replace("btn-sm","")}${t.recordatorioEn?`<span class="muted small" style="text-align:center">Último recordatorio: ${fCorta(new Date(t.recordatorioEn))} ${hhmm(new Date(t.recordatorioEn))}</span>`:""}</div>`;
     if(isAdmin())h+=`<button class="btn btn-dark" data-act="mensaje" data-id="${t.id}">${I.link} Enlace y mensaje para el propietario</button>`;
     if(isAdmin()&&t.estado==="pendiente")h+=`<button class="btn btn-ghost" data-act="seguimiento" data-id="${t.id}">Programar visita de seguimiento</button>`;
@@ -1167,7 +1169,7 @@ async function aplicarHora(id,s,tw){
   if(conflictos(tw,s,t.duracion,id).length){toast("Ese horario ya está ocupado.");return}
   if(fueraJornada(s,t.duracion)){toast("Ese horario está fuera de la jornada.");return}
   const antes=parse(t.inicio);const cambioTrab=tw!==t.trabajadorId;
-  const upd={inicio:s,trabajadorId:tw,historial:hist(t,`${antes?`Movida de ${fCorta(antes)} ${hhmm(antes)} a`:"Programada para"} ${fCorta(parse(s))} ${hhmm(parse(s))}${cambioTrab?" · reasignada a "+(trab(tw)?.nombre||""):""}`)};
+  const upd={inicio:s,trabajadorId:tw,historial:hist(t,s===t.inicio&&cambioTrab?"Reasignada a "+(trab(tw)?.nombre||""):`${antes?`Movida de ${fCorta(antes)} ${hhmm(antes)} a`:"Programada para"} ${fCorta(parse(s))} ${hhmm(parse(s))}${cambioTrab?" · reasignada a "+(trab(tw)?.nombre||""):""}`)};
   if(t.estado==="por_confirmar"){upd.estado="programada";upd.opciones=[]}
   if(t.recordatorioEn)upd.recordatorioEn=null;   // con la nueva hora, el recordatorio se vuelve a pedir
   try{await patch("tareas",id,upd)}catch(e){return}
@@ -1175,6 +1177,35 @@ async function aplicarHora(id,s,tw){
   await aviso(nt,`${cambioTrab?"Le asignaron":"Cambio de hora"}: ${t.tipo} en ${casaTxt(casa(t.casaId))}, ahora ${fCorta(parse(s))} ${hhmm(parse(s))}`);
   if(cambioTrab)await aviso(Object.assign({},t),`Se le quitó: ${t.tipo} en ${casaTxt(casa(t.casaId))}`);
   toast("Horario actualizado. Avise también al propietario.");
+  openSheet({kind:"mensaje",id});
+}
+// ---------- cambiar trabajador ----------
+function sheetTrab(s){
+  const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Cambiar trabajador");
+  const d=parse(t.inicio);
+  const rows=S.trab.map(w=>{
+    let estado="",btn="";
+    if(w.id===t.trabajadorId)estado=`<span class="small" style="color:var(--lime-ink);font-weight:700">Asignado ahora</span>`;
+    else if(!d){estado=`<span class="muted small">La fecha la elige el propietario</span>`;btn=`<button class="btn btn-dark btn-sm" data-act="asigtrab" data-id="${t.id}" data-w="${w.id}">Asignar</button>`}
+    else{
+      const cf=conflictos(w.id,t.inicio,t.duracion,t.id);
+      if(!cf.length){estado=`<span class="small" style="color:var(--ok);font-weight:700">Disponible a esa hora</span>`;btn=`<button class="btn btn-dark btn-sm" data-act="asigtrab" data-id="${t.id}" data-w="${w.id}">Asignar</button>`}
+      else{const nx=proximoLibre(w.id,startOfDay(d),t.duracion,t.id);estado=`<span class="small" style="color:var(--danger)">Ocupado: ${conflictMsg(cf)}</span>`;
+        if(nx)btn=`<button class="btn btn-ghost btn-sm" data-act="asigtrab" data-id="${t.id}" data-w="${w.id}" data-s="${nx}">Asignar y mover a ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`}
+    }
+    return `<div class="opt" style="align-items:center;flex-wrap:wrap"><span class="row" style="min-width:0;flex:1 1 200px;align-items:flex-start"><span class="avatar" style="background:${color(w.id)};width:34px;height:34px;font-size:12px">${esc(initials(w.nombre))}</span><span style="min-width:0"><b>${esc(w.nombre)}</b><br><span class="muted small">${esc(w.especialidad||"Postventa")}</span><br>${estado}</span></span>${btn}</div>`;
+  }).join("");
+  return head("Cambiar trabajador",esc(casaTxt(casa(t.casaId)))+(d?" · "+fCorta(d)+", "+hhmm(d)+" – "+hhmm(finT(d,t.duracion)):" · fecha por definir"))+`<div class="stack">${rows||`<p class="muted">No hay trabajadores registrados.</p>`}<p class="muted small" style="margin:0">Se avisa al trabajador nuevo y al anterior.</p></div>`;
+}
+async function asignarTrab(id,wid,nuevoInicio){
+  const t=S.tareas.find(x=>x.id===id);if(!t||!wid||wid===t.trabajadorId)return;
+  if(t.inicio){await aplicarHora(id,nuevoInicio||t.inicio,wid);return}
+  // tarea sin fecha (la elige el propietario)
+  const upd={trabajadorId:wid,historial:hist(t,"Reasignada a "+(trab(wid)?.nombre||""))};if(t.recordatorioEn)upd.recordatorioEn=null;
+  try{await patch("tareas",id,upd)}catch(e){return}
+  await aviso(Object.assign({},t,upd),`Le asignaron: ${t.tipo} en ${casaTxt(casa(t.casaId))} (fecha por confirmar)`);
+  if(t.trabajadorId)await aviso(t,`Se le quitó: ${t.tipo} en ${casaTxt(casa(t.casaId))}`);
+  toast("Trabajador cambiado. El enlace del propietario ya muestra la agenda del nuevo técnico.");
   openSheet({kind:"mensaje",id});
 }
 // ---------- modificar duración ----------
@@ -1443,6 +1474,8 @@ document.addEventListener("click",async e=>{
     case "recomitir":await marcarRecordatorio(id,"Recordatorio marcado como avisado");toast("Listo.");break;
     case "activarnotif":await activarNotif();break;
     case "duracion":openSheet({kind:"duracion",id});break;
+    case "cambtrab":openSheet({kind:"trab",id});break;
+    case "asigtrab":el.disabled=true;await asignarTrab(id,el.dataset.w,el.dataset.s);break;
     case "dusel":if(sheet&&sheet.kind==="duracion"){sheet.m=+el.dataset.m;openSheet(Object.assign(sheet,{_keep:true}))}break;
     case "guardardur":if(sheet&&sheet.kind==="duracion"){el.disabled=true;await guardarDur(id,sheet.m)}break;
     case "durmover":if(sheet&&sheet.kind==="duracion"){el.disabled=true;await guardarDur(id,sheet.m,el.dataset.s)}break;
