@@ -304,7 +304,9 @@ const TIPOS = [
   ["Cerrajería",45],["Retoque de pintura",180],["Cerámica o porcelanato",180],["Cielo raso / gypsum",120],
   ["Impermeabilización",240],["Calentador de agua",60],["Revisión general de garantía",120],["Otro",60]
 ];
-const DUR = [30,45,60,90,120,180,240,360,480];
+// Jornada completa = de 6 a. m. a 6 p. m. sin desayuno ni almuerzo = 10 h 30 min de trabajo
+const JORNADA = 630;
+const DUR = [30,45,60,90,120,180,240,300,360,420,480,540,600,JORNADA];
 const H0 = 6, H1 = 19, HH = 46;   // calendario 6:00–19:00
 const WORK0 = 6, WORK1 = 18, ULTIMA = 17;   // jornada lun–vie 6 a. m.–6 p. m.; último inicio 5 p. m.
 const HORARIO_TXT = "lunes a viernes, de 6 a. m. a 6 p. m. (último inicio a las 5 p. m.; no se trabaja en el desayuno de 9:00 a 9:30 a. m. ni en el almuerzo de 12 m. a 1 p. m.)";
@@ -344,7 +346,7 @@ function fLarga(d){return DIAS[d.getDay()].replace("Mié","Miércoles").replace(
 function fCorta(d){return DIAS[d.getDay()]+" "+d.getDate()+" "+MESES[d.getMonth()].slice(0,3)}
 function sameDay(a,b){return a&&b&&a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate()}
 function weekStart(d){const x=startOfDay(d);const w=(x.getDay()+6)%7;return addDays(x,-w)}
-function durTxt(m){if(m<60)return m+" min";const h=Math.floor(m/60),r=m%60;return h+" h"+(r?" "+r+" min":"")}
+function durTxt(m){if(m===JORNADA)return "Jornada completa";if(m<60)return m+" min";const h=Math.floor(m/60),r=m%60;return h+" h"+(r?" "+r+" min":"")}
 function rel(d){const diff=(d-new Date())/60000;if(diff<-5)return {t:"Atrasada",late:true};if(diff<60)return {t:"En "+Math.max(0,Math.round(diff))+" min"};if(diff<60*24&&sameDay(d,new Date()))return {t:"En "+Math.round(diff/60)+" h"};const days=Math.round((startOfDay(d)-startOfDay(new Date()))/864e5);if(days===1)return {t:"Mañana"};return {t:"En "+days+" días"}}
 
 // ---------- datos ----------
@@ -1285,7 +1287,10 @@ document.addEventListener("click",async e=>{
     case "cancelar":openSheet({kind:"cancelar",id});break;
     case "reporte":openSheet({kind:"reporte",id,files:[]});break;
     case "mensaje":openSheet({kind:"mensaje",id});break;
-    case "dur":el.parentNode.querySelectorAll(".choice").forEach(b=>b.setAttribute("aria-pressed",b===el));checkNueva();break;
+    case "dur":{el.parentNode.querySelectorAll(".choice").forEach(b=>b.setAttribute("aria-pressed",b===el));
+      // la jornada completa solo puede empezar a las 6 a. m.
+      if(+el.dataset.m===JORNADA){const hi=document.getElementById("n-hora");if(hi){hi.value=pad(WORK0)+":00";syncClock("n-hora")}}
+      checkNueva();break}
     case "nmodo":{el.parentNode.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===el));const prop=el.dataset.m==="prop";document.getElementById("n-fija").hidden=prop;document.getElementById("n-prop").hidden=!prop;
       checkNueva();break}
     case "usarlibre":{const [f,h]=el.dataset.s.split("T");document.getElementById("n-fecha").value=f;document.getElementById("n-hora").value=h;checkNueva();break}
