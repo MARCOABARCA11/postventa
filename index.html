@@ -1,6 +1,14 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Programación Postventa</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#0E0F0C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Postventa">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Roboto:wght@400;500;700&display=swap">
 <style>
@@ -136,6 +144,8 @@ h3{font-size:16px;font-weight:700}
 .ev.tent{border-style:dashed}
 .ev.done{opacity:.65}
 .ev.cancel{opacity:.45;text-decoration:line-through}
+.brk{position:absolute;left:0;right:0;pointer-events:none;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--warn) 9%,transparent) 0 6px,transparent 6px 12px);border-block:1px dashed color-mix(in srgb,var(--warn) 30%,transparent)}
+.brk span{display:block;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--warn);padding:2px 6px;opacity:.85}
 .nowline{position:absolute;left:0;right:0;height:2px;background:var(--danger);z-index:2}
 .nowline::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--danger)}
 
@@ -214,6 +224,41 @@ textarea.in{min-height:84px;resize:vertical}
 .icon-btn:disabled{opacity:.35;cursor:not-allowed}
 .brand{display:flex;align-items:center;gap:10px;font-family:var(--f-display);font-weight:800}
 .brand i{width:36px;height:36px;border-radius:10px;background:var(--dark);color:var(--lime);display:grid;place-items:center;font-style:normal}
+/* ---------- celular ---------- */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+button,a,label,.in{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.in{font-size:16px}   /* 16px evita que el iPhone haga zoom al tocar un campo */
+/* la columna de horas queda fija al deslizar entre trabajadores */
+.grid-time>.gutter{position:sticky;left:0;z-index:4;background:var(--card)}
+.grid-time>.colhead.gutter{z-index:5}
+/* semana en formato agenda (solo celular) */
+.wk-list{display:grid;gap:18px;margin-top:16px}
+.wk-head{display:flex;align-items:center;gap:8px;width:100%;padding:0 2px 8px;margin-bottom:10px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left}
+.wk-head b{font-family:var(--f-display);font-size:22px;line-height:1.2;font-variant-numeric:tabular-nums;border-radius:999px}
+.wk-dn{font-weight:700;text-transform:uppercase;font-size:12px;letter-spacing:.06em;color:var(--muted)}
+.wk-day.today .wk-head b{background:var(--lime);color:var(--onlime);padding:0 10px}
+.wk-free{font-size:13.5px;color:var(--muted);padding:0 2px}
+@media (max-width:640px){
+  .wrap{padding-block:12px 88px}
+  h1{font-size:24px}
+  .hero{margin-top:16px}
+  .hero .btn-lime{width:100%}
+  .rem{padding:14px 14px 10px}
+  .rem-top{gap:10px}
+  .timebox{min-width:58px;padding:7px 8px}
+  .timebox b{font-size:17px}
+  .rem-main>.row.between{flex-direction:column-reverse;align-items:flex-start;gap:4px}
+  .rem-main h3{font-size:15.5px}
+  .rem-actions .btn{flex:1 1 0;padding-inline:8px}
+  .btn-sm{min-height:42px}
+  .cal-head{margin-top:14px}
+  .cal-head h1{font-size:22px}
+  .seg button{padding:8px 12px}
+  .sheet{max-height:94vh;max-height:94dvh}
+  .kv{grid-template-columns:1fr;gap:2px}
+  .kv dd{margin-bottom:8px}
+  .section{margin-top:22px}
+}
 /* selector de hora tipo reloj */
 .clock-in{display:flex;align-items:center;gap:10px;text-align:left;font-weight:600;font-variant-numeric:tabular-nums}
 .clock-in svg{color:var(--muted);flex:none}
@@ -251,7 +296,7 @@ const APP_URL = "https://claude.ai/artifact/LyPbmE6sUNE9VdeKD9pN9s";
 // Base de datos en línea (Supabase). La clave publishable es pública por diseño; los permisos los pone la base de datos.
 const SUPA_URL = "https://pyfvzemfnkyklohqscwr.supabase.co";
 const SUPA_KEY = "sb_publishable_W-hI84RaUFBIjyunf3Da7A_qZmqtDgf";
-const PUBLIC_URL = "";   // dirección pública de la app (Netlify) para los enlaces de propietarios; vacío = la dirección actual
+const PUBLIC_URL = "https://marcoabarca11.github.io/postventa/";   // dirección pública de la app (Netlify) para los enlaces de propietarios; vacío = la dirección actual
 const CONDOS = ["Valle Ilios","Valle Novarum","Valle Barani","Valle Castilla"];
 const TIPOS = [
   ["Filtración en techo",120],["Fuga de agua / fontanería",90],["Desagüe obstruido",60],["Fisura en pared",120],
@@ -262,7 +307,9 @@ const TIPOS = [
 const DUR = [30,45,60,90,120,180,240,360,480];
 const H0 = 6, H1 = 19, HH = 46;   // calendario 6:00–19:00
 const WORK0 = 6, WORK1 = 18, ULTIMA = 17;   // jornada lun–vie 6 a. m.–6 p. m.; último inicio 5 p. m.
-const HORARIO_TXT = "lunes a viernes, de 6 a. m. a 6 p. m. (último inicio a las 5 p. m.)";
+const HORARIO_TXT = "lunes a viernes, de 6 a. m. a 6 p. m. (último inicio a las 5 p. m.; no se trabaja en el desayuno de 9:00 a 9:30 a. m. ni en el almuerzo de 12 m. a 1 p. m.)";
+// descansos del equipo, en minutos del día: no cuentan como tiempo de trabajo
+const DESCANSOS = [[9*60, 9*60+30, "Desayuno"], [12*60, 13*60, "Almuerzo"]];
 const COLORS = ["#7FA600","#2F6FDB","#C2412D","#8E44AD","#D9822B","#138D75","#B03A7A","#5D6D7E"];
 const ESTADO = {programada:"Programada",por_confirmar:"Esperando propietario",finalizada:"Finalizada",pendiente:"Quedó pendiente",cancelada:"Cancelada"};
 const DIAS = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
@@ -285,6 +332,9 @@ function pad(n){return String(n).padStart(2,"0")}
 function startOfDay(d){return new Date(d.getFullYear(),d.getMonth(),d.getDate())}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
 function addMin(d,n){return new Date(d.getTime()+n*60000)}
+function enDescanso(d){const m=d.getHours()*60+d.getMinutes();return DESCANSOS.some(([a,b])=>m>=a&&m<b)}
+// hora real de fin: el trabajo se detiene durante los descansos que atraviesa
+function finT(d,dur){let f=addMin(d,dur);const m0=d.getHours()*60+d.getMinutes();for(const [a,b] of DESCANSOS){const bs=new Date(d.getFullYear(),d.getMonth(),d.getDate(),0,a);if(m0<a&&f>bs)f=addMin(f,b-a)}return f}
 function dkey(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())}
 function toStr(d){return dkey(d)+"T"+pad(d.getHours())+":"+pad(d.getMinutes())}
 function parse(s){if(!s)return null;const [a,b]=s.split("T");const [y,m,dd]=a.split("-").map(Number);const [h,mi]=(b||"00:00").split(":").map(Number);return new Date(y,m-1,dd,h,mi)}
@@ -318,13 +368,17 @@ function vis(){return S.tareas.filter(t=>modo==="admin"||t.trabajadorId===modo)}
 function activas(list){return list.filter(t=>t.estado!=="cancelada")}
 function enRango(list,a,b){return list.filter(t=>{const d=parse(t.inicio);return d&&d>=a&&d<b}).sort((x,y)=>x.inicio<y.inicio?-1:1)}
 function isAdmin(){return modo==="admin"}
+function esMovil(){try{return matchMedia("(max-width:640px)").matches}catch(e){return false}}
+// si se gira el teléfono o cambia el tamaño, se redibuja (solo cuando cambia de celular a pantalla grande)
+try{const mq=matchMedia("(max-width:640px)");const onMq=()=>{if(!sheet&&!CK&&!S.needLogin)render()};
+  if(mq.addEventListener)mq.addEventListener("change",onMq);else if(mq.addListener)mq.addListener(onMq)}catch(e){}
 
 function conflictos(tid,inicioStr,dur,excludeId){
-  const a=parse(inicioStr), b=addMin(a,dur);
+  const a=parse(inicioStr), b=finT(a,dur);
   return S.tareas.filter(t=>t.id!==excludeId&&t.inicio&&t.trabajadorId===tid&&(t.estado==="programada"||t.estado==="por_confirmar")).filter(t=>{
-    const s=parse(t.inicio), e=addMin(s,t.duracion||60);return s<b&&e>a});
+    const s=parse(t.inicio), e=finT(s,t.duracion||60);return s<b&&e>a});
 }
-function fueraJornada(inicioStr,dur){const a=parse(inicioStr),b=addMin(a,dur);const ha=a.getHours()+a.getMinutes()/60,hb=b.getHours()+b.getMinutes()/60;return a.getDay()===0||a.getDay()===6||ha<WORK0||ha>ULTIMA||!sameDay(a,b)||hb>WORK1}
+function fueraJornada(inicioStr,dur){const a=parse(inicioStr),b=finT(a,dur);const ha=a.getHours()+a.getMinutes()/60,hb=b.getHours()+b.getMinutes()/60;return a.getDay()===0||a.getDay()===6||ha<WORK0||ha>ULTIMA||enDescanso(a)||!sameDay(a,b)||hb>WORK1}
 function proximoLibre(tid,desde,dur,excludeId){
   let d=new Date(desde);d.setSeconds(0,0);const m=d.getMinutes();if(m%30)d=addMin(d,30-m%30);
   for(let i=0;i<60*24;i++){
@@ -334,7 +388,7 @@ function proximoLibre(tid,desde,dur,excludeId){
   }
   return null;
 }
-function conflictMsg(list){return list.map(t=>{const s=parse(t.inicio);return `${esc(casaTxt(casa(t.casaId)))} (${hhmm(s)}–${hhmm(addMin(s,t.duracion))})`}).join(", ")}
+function conflictMsg(list){return list.map(t=>{const s=parse(t.inicio);return `${esc(casaTxt(casa(t.casaId)))} (${hhmm(s)}–${hhmm(finT(s,t.duracion))})`}).join(", ")}
 
 // ---------- modo local (HTML abierto fuera de claude.ai): guarda en este navegador ----------
 const LKEY="pv_db";
@@ -627,7 +681,7 @@ function viewInicio(){
   const ws=weekStart(hoy);const nSem=enRango(list,ws,addDays(ws,7)).length;
   const ms=new Date(hoy.getFullYear(),hoy.getMonth(),1);const nMes=enRango(list,ms,new Date(hoy.getFullYear(),hoy.getMonth()+1,1)).length;
   const t=modo!=="admin"?trab(modo):null;
-  const proximas=list.filter(x=>(x.estado==="programada"||x.estado==="por_confirmar")&&x.inicio&&addMin(parse(x.inicio),x.duracion||60)>addMin(new Date(),-240)).sort((a,b)=>a.inicio<b.inicio?-1:1).slice(0,6);
+  const proximas=list.filter(x=>(x.estado==="programada"||x.estado==="por_confirmar")&&x.inicio&&finT(parse(x.inicio),x.duracion||60)>addMin(new Date(),-240)).sort((a,b)=>a.inicio<b.inicio?-1:1).slice(0,6);
   const ready=S.loaded.tareas||S.noDb||S.offline;
   const needSetup=ready&&isAdmin()&&(!S.casas.length||!S.trab.length);
   let h=`<div class="wrap">${topbar("","",false)}
@@ -699,11 +753,11 @@ function calHeader(title,sub,step){
 }
 function layoutLanes(items){
   const sorted=items.slice().sort((a,b)=>a.inicio<b.inicio?-1:1);const lanes=[];
-  sorted.forEach(t=>{const s=parse(t.inicio);let i=lanes.findIndex(e=>e<=s);if(i<0){i=lanes.length;lanes.push(0)}lanes[i]=addMin(s,t.duracion||60);t._lane=i});
+  sorted.forEach(t=>{const s=parse(t.inicio);let i=lanes.findIndex(e=>e<=s);if(i<0){i=lanes.length;lanes.push(0)}lanes[i]=finT(s,t.duracion||60);t._lane=i});
   return {items:sorted,n:Math.max(1,lanes.length)};
 }
 function evHtml(t,n){
-  const s=parse(t.inicio);const top=((s.getHours()+s.getMinutes()/60)-H0)*HH;const hgt=Math.max(26,(t.duracion||60)/60*HH-3);
+  const s=parse(t.inicio);const top=((s.getHours()+s.getMinutes()/60)-H0)*HH;const hgt=Math.max(26,(finT(s,t.duracion||60)-s)/36e5*HH-3);
   const w=100/n;const c=casa(t.casaId);const cls=t.estado==="por_confirmar"?"tent":t.estado==="finalizada"?"done":t.estado==="cancelada"?"cancel":"";
   return `<button class="ev ${cls}" data-act="det" data-id="${t.id}" style="top:${top}px;height:${hgt}px;left:calc(${t._lane*w}% + 3px);width:calc(${w}% - 6px);${evStyle(t.trabajadorId)}"><b>${hhmmShort(s)} ${esc(c?c.condominio.replace("Valle ","")+" "+c.numero:"")}</b><span>${esc(t.tipo)}</span>${hgt>60?`<span>${esc(trab(t.trabajadorId)?.nombre||"")}</span>`:""}</button>`;
 }
@@ -716,7 +770,7 @@ function timeGrid(cols,minColW){
   h+=`<div class="gutter">${hours.map(x=>`<div class="hour">${x===H0?"":(x%12||12)+(x<12?" am":" pm")}</div>`).join("")}</div>`;
   cols.forEach(c=>{
     const L=layoutLanes(c.items);
-    h+=`<div class="col ${c.off?"off":""}">${hours.map(()=>`<div class="hl"></div>`).join("")}${L.items.map(t=>evHtml(t,L.n)).join("")}${c.today&&nowD.getHours()>=H0&&nowD.getHours()<H1?`<div class="nowline" style="top:${((nowD.getHours()+nowD.getMinutes()/60)-H0)*HH}px"></div>`:""}</div>`;
+    h+=`<div class="col ${c.off?"off":""}">${hours.map(()=>`<div class="hl"></div>`).join("")}${c.off?"":DESCANSOS.map(([a,b,n])=>`<div class="brk" style="top:${(a/60-H0)*HH}px;height:${(b-a)/60*HH}px"><span>${n}</span></div>`).join("")}${L.items.map(t=>evHtml(t,L.n)).join("")}${c.today&&nowD.getHours()>=H0&&nowD.getHours()<H1?`<div class="nowline" style="top:${((nowD.getHours()+nowD.getMinutes()/60)-H0)*HH}px"></div>`:""}</div>`;
   });
   return h+`</div></div>`;
 }
@@ -729,7 +783,7 @@ function listDay(items){
   if(!items.length)return `<div class="card empty daylist"><h3>Sin trabajos este día</h3><p>${isAdmin()?"Use Nueva tarea para programar uno.":"No tiene visitas programadas."}</p></div>`;
   return `<div class="daylist rem-list">${items.map(remCardLite).join("")}</div>`;
 }
-function remCardLite(t){const d=parse(t.inicio),c=casa(t.casaId);return `<button class="rem" style="text-align:left;width:100%" data-act="det" data-id="${t.id}"><div class="rem-top"><div class="timebox"><b>${hhmmShort(d)}</b><span>${d.getHours()<12?"a. m.":"p. m."}</span></div><div class="rem-main"><div class="row between" style="align-items:flex-start"><h3>${esc(casaTxt(c))}</h3><span class="pill st-${t.estado}">${ESTADO[t.estado]}</span></div><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${I.user}${esc(trab(t.trabajadorId)?.nombre||"")}</span><span>${I.clock}${durTxt(t.duracion)} · hasta ${hhmm(addMin(d,t.duracion))}</span></div></div></div></button>`}
+function remCardLite(t){const d=parse(t.inicio),c=casa(t.casaId);return `<button class="rem" style="text-align:left;width:100%" data-act="det" data-id="${t.id}"><div class="rem-top"><div class="timebox"><b>${hhmmShort(d)}</b><span>${d.getHours()<12?"a. m.":"p. m."}</span></div><div class="rem-main"><div class="row between" style="align-items:flex-start"><h3>${esc(casaTxt(c))}</h3><span class="pill st-${t.estado}">${ESTADO[t.estado]}</span></div><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${I.user}${esc(trab(t.trabajadorId)?.nombre||"")}</span><span>${I.clock}${durTxt(t.duracion)} · hasta ${hhmm(finT(d,t.duracion))}</span></div></div></div></button>`}
 
 function viewDia(){
   const a=startOfDay(fecha),b=addDays(a,1);const items=enRango(vis(),a,b);
@@ -738,12 +792,22 @@ function viewDia(){
     const ids=S.trab.map(t=>t.id);
     cols=ids.map(id=>({head:`<span class="row" style="justify-content:center;gap:6px"><span class="avatar" style="background:${color(id)};width:22px;height:22px;font-size:10px">${esc(initials(trab(id).nombre))}</span>${esc(trab(id).nombre.split(" ")[0])}</span>`,items:items.filter(t=>t.trabajadorId===id),today:false,off:a.getDay()===0}));
   } else cols=[{head:fCorta(a),items,today:sameDay(a,new Date())}];
-  return `<div class="wrap wide">${topbar("","",true)}${calHeader(fLarga(a),items.filter(t=>t.estado!=="cancelada").length+" trabajos · "+(isAdmin()?"por trabajador":"su agenda"),1)}${timeGrid(cols,isAdmin()?150:220)}${legend(items)}<div class="section-head section"><h2>Lista del día</h2></div>${listDay(items)}</div>`;
+  return `<div class="wrap wide">${topbar("","",true)}${calHeader(fLarga(a),items.filter(t=>t.estado!=="cancelada").length+" trabajos · "+(isAdmin()?"por trabajador":"su agenda"),1)}${timeGrid(cols,isAdmin()?(esMovil()?128:150):(esMovil()?200:220))}${legend(items)}<div class="section-head section"><h2>Lista del día</h2></div>${listDay(items)}</div>`;
 }
 function viewSemana(){
   const ws=weekStart(fecha);const items=enRango(vis(),ws,addDays(ws,7));
   const cols=[];for(let i=0;i<7;i++){const d=addDays(ws,i);cols.push({head:`${DIAS[d.getDay()]} <b class="num">${d.getDate()}</b>`,items:items.filter(t=>sameDay(parse(t.inicio),d)),today:sameDay(d,new Date()),off:d.getDay()===0,d})}
   const we=addDays(ws,6);
+  if(esMovil()){
+    // en el celular la semana se muestra como agenda por día (sin deslizar de lado)
+    let body="";
+    for(const c of cols){
+      const d=c.d,its=c.items,n=its.filter(t=>t.estado!=="cancelada").length;
+      if(!its.length&&(d.getDay()===0||d.getDay()===6))continue;
+      body+=`<div class="wk-day ${c.today?"today":""}"><button class="wk-head" data-act="mday" data-d="${dkey(d)}" aria-label="Ver ${fLarga(d)}"><span class="wk-dn">${["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"][d.getDay()]}</span><b>${d.getDate()}</b><span class="muted small">${MESES[d.getMonth()]}</span><span class="muted small num" style="margin-left:auto">${n?n+(n===1?" trabajo":" trabajos"):""}</span>${I.next}</button>${its.length?`<div class="rem-list">${its.map(remCardLite).join("")}</div>`:`<div class="wk-free">Sin trabajos programados.</div>`}</div>`;
+    }
+    return `<div class="wrap">${topbar("","",true)}${calHeader("Semana del "+ws.getDate()+(ws.getMonth()!==we.getMonth()?" de "+MESES[ws.getMonth()]:"")+" al "+we.getDate()+" de "+MESES[we.getMonth()],items.filter(t=>t.estado!=="cancelada").length+" trabajos programados",7)}<div class="wk-list">${body}</div></div>`;
+  }
   return `<div class="wrap wide">${topbar("","",true)}${calHeader("Semana del "+ws.getDate()+(ws.getMonth()!==we.getMonth()?" de "+MESES[ws.getMonth()]:"")+" al "+we.getDate()+" de "+MESES[we.getMonth()],items.filter(t=>t.estado!=="cancelada").length+" trabajos programados",7)}${timeGrid(cols,118)}${legend(items)}</div>`;
 }
 function viewMes(){
@@ -820,7 +884,7 @@ function viewCita(id){
   const c=esDemo?{condominio:"Valle Novarum",bloque:"C",numero:"14"}:t._casa!==undefined?t._casa:casa(t.casaId),w=esDemo?{nombre:"Carlos Mora"}:t._tecnico!==undefined?(t._tecnico?{nombre:t._tecnico}:null):trab(t.trabajadorId),d=parse(t.inicio);const elegir=t.estado==="por_confirmar"&&!d;
   h+=`<div class="section"><span class="pill st-${t.estado}">${elegir?"Falta elegir fecha":ESTADO[t.estado]}</span><h1 style="margin-top:10px">${elegir?"Elija el día y la hora de su visita":"Visita de mantenimiento"}</h1><p class="muted" style="margin:4px 0 0">${esc(casaTxt(c))}</p></div>
   <div class="card section"><dl class="kv"><dt>Trabajo</dt><dd>${esc(t.tipo)}</dd>${t.descripcion?`<dt>Detalle</dt><dd>${esc(t.descripcion)}</dd>`:""}<dt>Técnico</dt><dd>${esc(w?w.nombre:"Por asignar")}</dd>
-  ${d?`<dt>Fecha</dt><dd>${fLarga(d)}</dd><dt>Hora</dt><dd>${hhmm(d)} a ${hhmm(addMin(d,t.duracion))}</dd>`:""}<dt>Duración</dt><dd>Aprox. ${durTxt(t.duracion)}</dd></dl></div>`;
+  ${d?`<dt>Fecha</dt><dd>${fLarga(d)}</dd><dt>Hora</dt><dd>${hhmm(d)} a ${hhmm(finT(d,t.duracion))}</dd>`:""}<dt>Duración</dt><dd>Aprox. ${durTxt(t.duracion)}</dd></dl></div>`;
   if(elegir)h+=`<div class="section">${pickerHtml(t,ownerP,"owner")}</div>`;
   if(t.estado==="cancelada")h+=`<div class="alert bad section">Esta visita fue cancelada. Le contactaremos para reprogramarla.</div>`;
   if(tel)h+=`<p class="muted small section">¿Dudas o cambios? Escriba al equipo de postventa: <b style="user-select:all">${esc(tel)}</b></p>`;
@@ -832,8 +896,10 @@ const ownerP={week:null,day:null,slot:null,sent:null};
 function weekDays(off){const ws=addDays(weekStart(new Date()),7*off);return [0,1,2,3,4].map(i=>addDays(ws,i))}
 function slotsFor(t,day){
   const out=[];for(let h=WORK0;h<=ULTIMA;h++){
-    if(h*60+t.duracion>WORK1*60)break;
-    const st=new Date(day.getFullYear(),day.getMonth(),day.getDate(),h,0);const str=toStr(st);
+    let st=new Date(day.getFullYear(),day.getMonth(),day.getDate(),h,0);
+    // si la hora cae en un descanso, se ofrece al terminar el descanso (9:00 → 9:30)
+    if(enDescanso(st)){const dsc=DESCANSOS.find(([a,b])=>h*60>=a&&h*60<b);st=new Date(day.getFullYear(),day.getMonth(),day.getDate(),0,dsc[1]);if(st.getMinutes()===0)continue}
+    const str=toStr(st);if(fueraJornada(str,t.duracion))continue;
     const past=st<addMin(new Date(),60);const fin=addMin(st,t.duracion);
     const busy=!past&&(t.demo?(day.getDate()*3+h)%5===0:t.ocupado?t.ocupado.some(([a,b])=>parse(a)<fin&&parse(b)>st):conflictos(t.trabajadorId,str,t.duracion,t.id).length>0);
     out.push({s:str,d:st,ok:!past&&!busy,why:past?"No disponible":busy?"Ocupado":""});
@@ -855,13 +921,13 @@ function pickerHtml(t,P,ctx){
   const day=parse(P.day+"T00:00");const sl=slotsFor(t,day);const sel=P.slot?parse(P.slot):null;
   return `<div class="stack"><div class="row between wrapr"><div><span class="eyebrow">Paso 2 de 2</span><h2 style="margin-top:2px">${fLarga(day)}</h2></div><button class="btn btn-ghost btn-sm" data-act="pkback">${I.back} Cambiar día</button></div>
   <p class="muted small" style="margin:0">Elija el bloque de ${durTxt(t.duracion)} en que prefiere la visita.</p>
-  <div class="slotgrid">${sl.map(x=>`<button class="slot" data-act="pkslot" data-s="${x.s}" aria-pressed="${x.s===P.slot}" ${x.ok?"":"disabled"}><b class="num">${hhmm(x.d)}</b><span>hasta ${hhmm(addMin(x.d,t.duracion))}</span>${x.ok?"":`<em>${x.why}</em>`}</button>`).join("")}</div>
-  ${sel?`<div class="confirmbar"><div><span class="eyebrow">Su elección</span><div style="font-weight:700">${fLarga(sel)}</div><div class="num">${hhmm(sel)} a ${hhmm(addMin(sel,t.duracion))}</div></div><button class="btn btn-lime" data-act="pkconfirm" data-id="${t.id}">${ctx==="owner"?"Confirmar visita":"Guardar horario y avisar"}</button></div>`:""}</div>`;
+  <div class="slotgrid">${sl.map(x=>`<button class="slot" data-act="pkslot" data-s="${x.s}" aria-pressed="${x.s===P.slot}" ${x.ok?"":"disabled"}><b class="num">${hhmm(x.d)}</b><span>hasta ${hhmm(finT(x.d,t.duracion))}</span>${x.ok?"":`<em>${x.why}</em>`}</button>`).join("")}</div>
+  ${sel?`<div class="confirmbar"><div><span class="eyebrow">Su elección</span><div style="font-weight:700">${fLarga(sel)}</div><div class="num">${hhmm(sel)} a ${hhmm(finT(sel,t.duracion))}</div></div><button class="btn btn-lime" data-act="pkconfirm" data-id="${t.id}">${ctx==="owner"?"Confirmar visita":"Guardar horario y avisar"}</button></div>`:""}</div>`;
 }
 function curP(){return sheet&&sheet.kind==="picker"?sheet.P:ownerP}
 function rerenderPicker(){if(sheet&&sheet.kind==="picker")openSheet(Object.assign(sheet,{_keep:true}));else render()}
 async function pickConfirm(id){
-  if(id==="demo"){const P=ownerP,od=parse(P.slot);P.sent=`<div class="card stack"><span class="pill st-programada" style="align-self:start">Visita confirmada</span><h2>${fLarga(od)}</h2><p style="margin:0" class="num">De ${hhmm(od)} a ${hhmm(addMin(od,DEMO_T.duracion))} · Técnico: Carlos Mora</p><p class="muted small" style="margin:0">Así se ve la confirmación. En una visita real, la tarea pasa a "Programada" en el calendario y el trabajador recibe el aviso.</p><button class="btn btn-ghost btn-sm" style="align-self:start" data-act="pkreset">Probar otra vez</button></div>`;render();return}
+  if(id==="demo"){const P=ownerP,od=parse(P.slot);P.sent=`<div class="card stack"><span class="pill st-programada" style="align-self:start">Visita confirmada</span><h2>${fLarga(od)}</h2><p style="margin:0" class="num">De ${hhmm(od)} a ${hhmm(finT(od,DEMO_T.duracion))} · Técnico: Carlos Mora</p><p class="muted small" style="margin:0">Así se ve la confirmación. En una visita real, la tarea pasa a "Programada" en el calendario y el trabajador recibe el aviso.</p><button class="btn btn-ghost btn-sm" style="align-self:start" data-act="pkreset">Probar otra vez</button></div>`;render();return}
   if(CITA&&CITA.data&&CITA.data.id===id&&!(sheet&&sheet.kind==="picker")){
     // propietario: guarda directo en la base de datos por medio de su enlace secreto
     const P=ownerP,tok=CITA.data._token;if(!P.slot)return;
@@ -879,7 +945,7 @@ async function pickConfirm(id){
       if(admin){toast("Horario guardado. Avise al propietario.");openSheet({kind:"mensaje",id})}else{toast("¡Listo! Su visita quedó confirmada.");render()}
       return}catch(e){if(admin)return}
   }
-  const txt=`Hola, para la visita de ${t.tipo} en ${casaTxt(casa(t.casaId))} elijo: ${fLarga(od)}, de ${hhmm(od)} a ${hhmm(addMin(od,t.duracion))}.`;const tel=S.config.telefono;
+  const txt=`Hola, para la visita de ${t.tipo} en ${casaTxt(casa(t.casaId))} elijo: ${fLarga(od)}, de ${hhmm(od)} a ${hhmm(finT(od,t.duracion))}.`;const tel=S.config.telefono;
   P.sent=`<div class="card stack"><h2>Envíenos su elección</h2><p class="muted" style="margin:0">Para terminar, envíe este mensaje al equipo de postventa.</p><div class="msgbox" id="o-msg">${esc(txt)}</div><div class="row wrapr"><button class="btn btn-dark btn-sm" data-act="copy" data-t="o-msg">Copiar</button>${tel?`<a class="btn btn-lime btn-sm" href="${esc(wa(tel,txt))}" target="_blank" rel="noopener">Enviar por WhatsApp</a>`:""}<button class="btn btn-ghost btn-sm" data-act="pkreset">Elegir otro horario</button></div>${tel?`<span class="muted small">WhatsApp de postventa: <b style="user-select:all">${esc(tel)}</b></span>`:""}</div>`;
   render();
 }
@@ -915,13 +981,15 @@ const CKR=100, CKC=128;   // radio de los números y centro (en un reloj de 256)
 function clockField(id,val){return `<input type="hidden" id="${id}" value="${esc(val||"")}"><button type="button" class="in clock-in" id="${id}-btn" data-act="clock" data-for="${id}" aria-haspopup="dialog">${I.clock}<span>${clockTxt(val)}</span></button>`}
 function clockTxt(v){if(!v)return "Elegir hora";const [h,m]=v.split(":").map(Number);return hhmm(new Date(2000,0,1,h,m))}
 function syncClock(id){const i=document.getElementById(id),b=document.getElementById(id+"-btn");if(i&&b)b.querySelector("span").textContent=clockTxt(i.value)}
-function horaOk(h){return h>=WORK0&&h<=ULTIMA}
-function minOk(h,m){return h<ULTIMA||m===0}
+const MINS=[0,5,10,15,20,25,30,35,40,45,50,55];
+function minOk(h,m){return (h<ULTIMA||m===0)&&!enDescanso(new Date(2000,0,3,h,m))}
+function horaOk(h){return h>=WORK0&&h<=ULTIMA&&MINS.some(m=>minOk(h,m))}
+function ajustaMin(){if(CK&&!minOk(CK.h,CK.m)){const m=MINS.find(x=>minOk(CK.h,x));CK.m=m==null?0:m}}
 function openClock(id){
   const v=document.getElementById(id)?.value||"08:00";let [h,m]=v.split(":").map(Number);
   if(isNaN(h))h=8;if(isNaN(m))m=0;m=Math.round(m/5)*5;if(m===60){m=0;h++}
-  if(!horaOk(h))h=h<WORK0?WORK0:ULTIMA;if(!minOk(h,m))m=0;
-  CK={for:id,h,m,mode:"h"};renderClock();document.getElementById("ck-dial")?.focus();
+  if(!horaOk(h))h=h<WORK0?WORK0:h>ULTIMA?ULTIMA:h+1;
+  CK={for:id,h,m,mode:"h"};ajustaMin();renderClock();document.getElementById("ck-dial")?.focus();
 }
 function closeClock(){CK=null;ckDrag=false;renderClock()}
 function ckPos(i){const a=i*Math.PI/6;return [CKC+CKR*Math.sin(a),CKC-CKR*Math.cos(a)]}
@@ -938,7 +1006,7 @@ function renderClock(){
       <div class="ck-ap"><button type="button" data-act="ckap" data-v="am" aria-pressed="${!pm}">a. m.</button><button type="button" data-act="ckap" data-v="pm" aria-pressed="${pm}">p. m.</button></div></div></div>
     <div class="ck-dial" id="ck-dial" tabindex="0" role="slider" aria-label="${CK.mode==="h"?"Hora":"Minutos"}; use las flechas y Enter">
       <svg class="ck-hand" viewBox="0 0 256 256" aria-hidden="true"><line id="ck-line" x1="${CKC}" y1="${CKC}" x2="${CKC}" y2="${CKC}"/><circle cx="${CKC}" cy="${CKC}" r="4"/><circle id="ck-knob" cx="${CKC}" cy="${CKC}" r="20"/></svg>${nums}</div>
-    <p class="muted small" style="margin-block:0;text-align:center">Toque o arrastre la aguja. Horario: 6 a. m. a 5 p. m. (último inicio).</p>
+    <p class="muted small" style="margin-block:0;text-align:center">Toque o arrastre la aguja. Inicio de 6 a. m. a 5 p. m.; no se puede iniciar en el desayuno (9–9:30) ni en el almuerzo (12–1).</p>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost btn-sm" data-act="ckcancel">Cancelar</button><button type="button" class="btn btn-lime btn-sm" data-act="ckok">Aceptar</button></div>
   </div></div>`;
   updateDial();
@@ -952,7 +1020,7 @@ function updateDial(){
   document.getElementById("ck-dial").setAttribute("aria-valuetext",clockTxt(pad(CK.h)+":"+pad(CK.m)));
 }
 function ckSet(i){
-  if(CK.mode==="h"){const h24=((i||12)%12)+(CK.h>=12?12:0);if(!horaOk(h24))return false;CK.h=h24;if(!minOk(CK.h,CK.m))CK.m=0}
+  if(CK.mode==="h"){const h24=((i||12)%12)+(CK.h>=12?12:0);if(!horaOk(h24))return false;CK.h=h24;ajustaMin()}
   else{if(!minOk(CK.h,i*5))return false;CK.m=i*5}
   updateDial();return true;
 }
@@ -1003,13 +1071,13 @@ function checkNueva(){
   const v=nuevaVals();const out=document.getElementById("n-check");if(!v||!out)return;
   let msgs=[],ok=true;
   const pd=document.getElementById("n-prop-dur");if(pd)pd.textContent=durTxt(v.duracion);
-  if(v.duracion>(WORK1-WORK0)*60){ok=false;msgs.push(`<div class="alert bad">La duración supera la jornada de un día.</div>`)}
+  if(v.duracion>(WORK1-WORK0)*60-DESCANSOS.reduce((n,[a,b])=>n+b-a,0)){ok=false;msgs.push(`<div class="alert bad">La duración supera la jornada de un día.</div>`)}
   if(!v.prop&&v.trabajadorId&&v.inicio){
     const s=v.inicio;const cf=conflictos(v.trabajadorId,s,v.duracion);
     if(parse(s)<new Date()){ok=false;msgs.push(`<div class="alert bad">Esa hora ya pasó.</div>`)}
     else if(fueraJornada(s,v.duracion)){ok=false;const nx=proximoLibre(v.trabajadorId,parse(s),v.duracion);msgs.push(`<div class="alert bad">Fuera del horario de trabajo: ${HORARIO_TXT}.${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibre" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`)}
     else if(cf.length){ok=false;const nx=proximoLibre(v.trabajadorId,parse(s),v.duracion);msgs.push(`<div class="alert bad">${esc(trab(v.trabajadorId).nombre.split(" ")[0])} ya tiene ${conflictMsg(cf)}.${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibre" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`)}
-    else msgs.push(`<div class="alert okk">Horario libre: ${hhmm(parse(s))} – ${hhmm(addMin(parse(s),v.duracion))}</div>`);
+    else msgs.push(`<div class="alert okk">Horario libre: ${hhmm(parse(s))} – ${hhmm(finT(parse(s),v.duracion))}</div>`);
   }
   out.innerHTML=msgs.join("");out.className=msgs.length?"stack":"";
   const btn=document.getElementById("n-save");if(btn){btn.disabled=!ok||!v.casaId||!v.trabajadorId||(!v.prop&&!v.inicio);btn.textContent=v.prop?"Guardar y preparar enlace":"Guardar y avisar al trabajador"}
@@ -1031,7 +1099,7 @@ function sheetDetalle(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Tarea")+`<p class="muted">Esta tarea ya no existe.</p>`;
   const c=casa(t.casaId),w=trab(t.trabajadorId),d=parse(t.inicio);const abierta=t.estado==="programada"||t.estado==="por_confirmar";
   let h=head(esc(casaTxt(c)),`<span class="pill st-${t.estado}" style="margin-top:6px">${ESTADO[t.estado]}</span>`);
-  h+=`<div class="card"><dl class="kv"><dt>Trabajo</dt><dd>${esc(t.tipo)}</dd>${t.descripcion?`<dt>Detalle</dt><dd>${esc(t.descripcion)}</dd>`:""}<dt>Trabajador</dt><dd>${esc(w?w.nombre:"—")}</dd>${d?`<dt>Fecha</dt><dd>${fLarga(d)}</dd><dt>Hora</dt><dd>${hhmm(d)} – ${hhmm(addMin(d,t.duracion))}</dd>`:`<dt>Fecha</dt><dd>Por definir: la elige el propietario</dd>`}<dt>Estimado</dt><dd>${durTxt(t.duracion)}</dd>${c&&c.propietario?`<dt>Propietario</dt><dd>${esc(c.propietario)}${c.telefono?" · "+esc(c.telefono):""}</dd>`:""}</dl></div>`;
+  h+=`<div class="card"><dl class="kv"><dt>Trabajo</dt><dd>${esc(t.tipo)}</dd>${t.descripcion?`<dt>Detalle</dt><dd>${esc(t.descripcion)}</dd>`:""}<dt>Trabajador</dt><dd>${esc(w?w.nombre:"—")}</dd>${d?`<dt>Fecha</dt><dd>${fLarga(d)}</dd><dt>Hora</dt><dd>${hhmm(d)} – ${hhmm(finT(d,t.duracion))}</dd>`:`<dt>Fecha</dt><dd>Por definir: la elige el propietario</dd>`}<dt>Estimado</dt><dd>${durTxt(t.duracion)}</dd>${c&&c.propietario?`<dt>Propietario</dt><dd>${esc(c.propietario)}${c.telefono?" · "+esc(c.telefono):""}</dd>`:""}</dl></div>`;
   if(t.estado==="por_confirmar"&&isAdmin()&&!readOnly)h+=`<div class="section"><button class="btn btn-dark" style="width:100%" data-act="picker" data-id="${t.id}">Anotar el horario que eligió el propietario</button></div>`;
   if(t.nota||(t.fotos||[]).length)h+=`<div class="section stack"><h3>Reporte del trabajador</h3>${t.nota?`<div class="card">${esc(t.nota)}</div>`:""}${(t.fotos||[]).length?`<div class="photos">${t.fotos.map(f=>`<a href="${esc(blobUrl(f))}" target="_blank" rel="noopener"><img src="${esc(blobUrl(f))}" alt="Fotografía del trabajo"></a>`).join("")}</div>`:""}</div>`;
   h+=`<div class="section stack">`;
@@ -1146,7 +1214,7 @@ function msgOwner(t){
     return `${saludo}\n\nVamos a atender su reporte en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• Técnico: ${w?w.nombre:"por asignar"}\n• Duración aproximada: ${durTxt(t.duracion)}\n\nPor favor elija el día y la hora que mejor le convengan (${HORARIO_TXT}) en este enlace:\n${linkFor(t.id)}\n\nSi no puede abrirlo, respóndanos con el día y la hora que prefiera.`;
   }
   if(t.estado==="cancelada")return `${saludo}\n\nLe informamos que la visita${d?" programada para "+fLarga(d)+" a las "+hhmm(d):""} en ${casaTxt(c)} fue cancelada. Le contactaremos para reprogramarla.`;
-  return `${saludo}\n\nLe confirmamos la visita de mantenimiento en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• Técnico: ${w?w.nombre:""}\n• Fecha: ${fLarga(d)}\n• Hora: ${hhmm(d)} a ${hhmm(addMin(d,t.duracion))} (aprox. ${durTxt(t.duracion)})\n\nDetalles de la visita:\n${linkFor(t.id)}`;
+  return `${saludo}\n\nLe confirmamos la visita de mantenimiento en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• Técnico: ${w?w.nombre:""}\n• Fecha: ${fLarga(d)}\n• Hora: ${hhmm(d)} a ${hhmm(finT(d,t.duracion))} (aprox. ${durTxt(t.duracion)})\n\nDetalles de la visita:\n${linkFor(t.id)}`;
 }
 function msgWorker(t){const c=casa(t.casaId),d=parse(t.inicio);return `Hola ${trab(t.trabajadorId)?.nombre.split(" ")[0]||""}, se le asignó un trabajo:\n• ${t.tipo} en ${casaTxt(c)}\n• ${d?fLarga(d)+", "+hhmm(d):"Fecha por definir (la elige el propietario)"}\n• Tiempo estimado: ${durTxt(t.duracion)}${t.descripcion?"\n• Detalle: "+t.descripcion:""}`}
 function wa(phone,text){const p=String(phone||"").replace(/\D/g,"");const num=p.length===8?"506"+p:p;return "https://wa.me/"+(num||"")+"?text="+encodeURIComponent(text)}
@@ -1268,7 +1336,7 @@ document.addEventListener("click",async e=>{
     case "ckcancel":{const id=CK&&CK.for;closeClock();if(id)document.getElementById(id+"-btn")?.focus();break}
     case "ckok":if(CK)ckAccept();break;
     case "ckmode":if(CK){CK.mode=el.dataset.m;renderClock()}break;
-    case "ckap":if(CK){const pm=el.dataset.v==="pm";let h=(CK.h%12)+(pm?12:0);if(!horaOk(h))h=pm?Math.min(Math.max(h,12),ULTIMA):Math.max(h,WORK0);CK.h=h;if(!minOk(CK.h,CK.m))CK.m=0;renderClock()}break;
+    case "ckap":if(CK){const pm=el.dataset.v==="pm";let h=(CK.h%12)+(pm?12:0);if(!horaOk(h))h=pm?Math.min(Math.max(h,12),ULTIMA):Math.max(h,WORK0);if(!horaOk(h))h=pm?13:WORK0;CK.h=h;ajustaMin();renderClock()}break;
     case "demo":await cargarDemo();break;
     case "borrardemo":await borrarDemo();break;
   }
@@ -1328,7 +1396,7 @@ async function cargarDemo(){
   const nombres=[["Carlos Mora (ejemplo)","Fontanería"],["Luis Jiménez (ejemplo)","Electricidad"],["Andrés Vargas (ejemplo)","Acabados"]];
   const wids=[];for(let i=0;i<nombres.length;i++){const id="wdemo"+i;wids.push(id);await put("trabajadores",id,{nombre:nombres[i][0],especialidad:nombres[i][1],telefono:"",color:COLORS[i],demo:true,creado:new Date(Date.now()+i).toISOString()})}
   const cids=[];for(const cn of CONDOS){for(const [bl,num] of [["A","12"],["B","27"],["C","41"]]){const id=casaId(cn,bl,num)+"-demo";cids.push(id);await put("casas",id,{condominio:cn,bloque:bl,numero:num,demo:true})}}
-  const base=startOfDay(new Date());const plan=[[0,9,0,0,"Fuga de agua / fontanería",90],[0,14,1,4,"Revisión eléctrica",90],[1,8,2,7,"Ajuste de puertas",60],[1,10,0,2,"Filtración en techo",120],[2,13,1,9,"Tomacorriente o apagador",45],[3,8,2,5,"Retoque de pintura",180],[4,9,0,11,"Filtración en techo",120],[8,10,1,3,"Fisura en pared",120],[12,8,2,6,"Filtración en techo",120]];
+  const base=startOfDay(new Date());const plan=[[0,10,0,0,"Fuga de agua / fontanería",90],[0,14,1,4,"Revisión eléctrica",90],[1,8,2,7,"Ajuste de puertas",60],[1,10,0,2,"Filtración en techo",120],[2,13,1,9,"Tomacorriente o apagador",45],[3,8,2,5,"Retoque de pintura",180],[4,10,0,11,"Filtración en techo",120],[8,10,1,3,"Fisura en pared",120],[12,8,2,6,"Filtración en techo",120]];
   for(let i=0;i<plan.length;i++){const [dd,h,w,c,tipo,dur]=plan[i];let d=addMin(addDays(base,dd),h*60);if(d.getDay()===6)d=addDays(d,2);if(d.getDay()===0)d=addDays(d,1);
     await put("tareas","tdemo"+i,{casaId:cids[c],trabajadorId:wids[w],tipo,descripcion:"Tarea de ejemplo",duracion:dur,inicio:toStr(d),estado:"programada",opciones:[],fotos:[],nota:"",demo:true,creada:new Date().toISOString(),historial:[{t:toStr(new Date()),txt:"Creada (ejemplo)"}]})}
   toast("Ejemplo cargado. Puede borrarlo desde el menú.");
