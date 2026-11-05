@@ -306,7 +306,7 @@ const APP_URL = "https://claude.ai/artifact/LyPbmE6sUNE9VdeKD9pN9s";
 const SUPA_URL = "https://pyfvzemfnkyklohqscwr.supabase.co";
 const SUPA_KEY = "sb_publishable_W-hI84RaUFBIjyunf3Da7A_qZmqtDgf";
 const PUBLIC_URL = "https://marcoabarca11.github.io/postventa/";   // dirección pública de la app (Netlify) para los enlaces de propietarios; vacío = la dirección actual
-const CONDOS = ["Valle Ilios","Valle Novarum","Valle Barani","Valle Castilla"];
+const CONDOS_BASE = ["Valle Ilios","Valle Novarum","Valle Barani","Valle Castilla"];   // los de siempre; los demás se agregan en Casas
 const TIPOS = [
   ["Filtración en techo",120],["Fuga de agua / fontanería",90],["Desagüe obstruido",60],["Fisura en pared",120],
   ["Revisión eléctrica",90],["Tomacorriente o apagador",45],["Ajuste de puertas",60],["Ajuste de ventanas",60],
@@ -328,7 +328,7 @@ const DIAS = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 
 // ---------- estado ----------
-const S = {casas:[],trab:[],tareas:[],avisos:[],reportes:[],config:{},loaded:{},offline:false,noDb:false};
+const S = {condos:[],casas:[],trab:[],tareas:[],avisos:[],reportes:[],config:{},loaded:{},offline:false,noDb:false};
 let db=null, assets=null, user=null, canWrite=null, readOnly=false, sb=null;
 let modo = lsGet("modo") || "admin";
 let fecha = startOfDay(new Date());
@@ -367,7 +367,15 @@ function casa(id){return S.casas.find(c=>c.id===id)}
 function trab(id){return S.trab.find(t=>t.id===id)}
 function casaTxt(c){return c?c.condominio+(c.bloque?" · Bloque "+c.bloque:"")+" · Casa "+c.numero:"Casa eliminada"}
 function casaId(cn,bl,num){return (cn+"-"+bl+"-"+num).toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}
-let lastCondo=CONDOS[0],lastBloque="";
+// condominios: los registrados (en su orden) + cualquier nombre que ya usen las casas
+function condos(){
+  const reg=S.condos.slice().sort((a,b)=>(a.orden??100)-(b.orden??100)||String(a.nombre).localeCompare(String(b.nombre),"es")).map(c=>c.nombre);
+  const base=reg.length?reg:CONDOS_BASE.slice();
+  S.casas.forEach(c=>{if(c.condominio&&!base.includes(c.condominio))base.push(c.condominio)});
+  return base;
+}
+function condoId(n){return "cn-"+String(n).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}
+let lastCondo=CONDOS_BASE[0],lastBloque="";
 const BLOQUES = {"Valle Novarum":"ABCDEFGHIJKLM".split("")};
 function bloqueInput(id,cn,val){
   const lista=BLOQUES[cn];
@@ -497,6 +505,7 @@ async function restaurarRespaldo(file){
 // ---------- base de datos en línea (Supabase) ----------
 // Imita la misma interfaz que usa el resto de la app (collection/doc/onSnapshot) y traduce los nombres de campos.
 const COLS={
+  condominios:["id","nombre","orden","creado"],
   casas:["id","condominio","bloque","numero","propietario","telefono","fecha_entrega","demo","creado"],
   trabajadores:["id","nombre","telefono","especialidad","color","email","demo","creado"],
   tareas:["id","casa_id","trabajador_id","tipo","descripcion","duracion","inicio","estado","fotos","nota","motivo","historial","creada","reportado_en","recordatorio_en","grupo","serie","demo"],
@@ -547,7 +556,7 @@ function supaDb(sb){
     doc:path=>{const [c,i]=path.split("/");return docRef(c,i)},
     exportar:()=>JSON.stringify({app:"postventa",version:1,exportado:new Date().toISOString(),datos:Object.fromEntries(Object.keys(COLS).map(c=>[c,Object.fromEntries((cache[c]||[]).map(r=>{const o=plain(r);delete o.token;return [r.id,o]}))]))},null,1),
     importar:async datos=>{
-      for(const col of ["casas","trabajadores","tareas","reportes","avisos","config"]){
+      for(const col of ["condominios","casas","trabajadores","tareas","reportes","avisos","config"]){
         const rows=Object.entries(datos[col]||{}).map(([id,o])=>Object.assign(toRow(col,o),{id}));
         for(let i=0;i<rows.length;i+=200){const {error}=await sb.from(col).upsert(rows.slice(i,i+200));if(error)throw supaErr(error)}
         if(rows.length)await fetchCol(col).catch(()=>{});
@@ -637,7 +646,8 @@ async function init(){
     else S.loaded[key]=S.loaded[key]||snap.docs.length>0;
     onData(key);
   },err=>{if(key==="tareas"){clearTimeout(timer);S.offline=true;render()}});
-  sub("casas","casas",()=>S.casas.sort((a,b)=>a.condominio!==b.condominio?CONDOS.indexOf(a.condominio)-CONDOS.indexOf(b.condominio):(String(a.bloque||"").localeCompare(String(b.bloque||""),undefined,{numeric:true})||String(a.numero).localeCompare(String(b.numero),undefined,{numeric:true}))));
+  sub("condominios","condos");
+  sub("casas","casas",()=>{const L=condos();S.casas.sort((a,b)=>a.condominio!==b.condominio?L.indexOf(a.condominio)-L.indexOf(b.condominio):(String(a.bloque||"").localeCompare(String(b.bloque||""),undefined,{numeric:true})||String(a.numero).localeCompare(String(b.numero),undefined,{numeric:true})))});
   sub("trabajadores","trab",()=>S.trab.sort((a,b)=>(a.creado||"")<(b.creado||"")?-1:1));
   sub("tareas","tareas");
   sub("avisos","avisos",()=>S.avisos.sort((a,b)=>a.creado<b.creado?1:-1));
@@ -907,16 +917,22 @@ function viewMes(){
 
 // ---------- casas y equipo ----------
 function viewCasas(){
-  let h=`<div class="wrap">${topbar("Casas",S.casas.length+" casas registradas en "+CONDOS.length+" condominios",true)}`;
-  if(isAdmin()&&!readOnly&&!formOpen.casas)h+=`<div class="section"><button class="btn btn-ghost btn-sm" data-act="toggleform" data-f="casas">${I.plus} Agregar casa</button></div>`;
-  if(isAdmin()&&!readOnly&&formOpen.casas)h+=`<div class="card section stack"><div class="row between"><h3>Agregar casa</h3><button class="icon-btn light" style="width:36px;height:36px" data-act="toggleform" data-f="casas" aria-label="Cerrar">${I.x}</button></div>
-    <div class="field"><label for="cc-condo">Condominio</label><select id="cc-condo" class="in">${CONDOS.map(c=>`<option ${c===lastCondo?"selected":""}>${c}</option>`).join("")}</select></div>
+  const L=condos();if(!L.includes(lastCondo))lastCondo=L[0]||"";
+  let h=`<div class="wrap">${topbar("Casas",S.casas.length+" casas registradas en "+L.length+" condominios",true)}`;
+  const adm=isAdmin()&&!readOnly;
+  if(adm&&(!formOpen.casas||!formOpen.condo))h+=`<div class="section row wrapr" style="gap:8px">${!formOpen.casas?`<button class="btn btn-ghost btn-sm" data-act="toggleform" data-f="casas">${I.plus} Agregar casa</button>`:""}${!formOpen.condo?`<button class="btn btn-ghost btn-sm" data-act="toggleform" data-f="condo">${I.plus} Agregar condominio</button>`:""}</div>`;
+  if(adm&&formOpen.condo)h+=`<div class="card section stack"><div class="row between"><h3>Agregar condominio</h3><button class="icon-btn light" style="width:36px;height:36px" data-act="toggleform" data-f="condo" aria-label="Cerrar">${I.x}</button></div>
+    <div class="field"><label for="cn-nom">Nombre del condominio</label><input id="cn-nom" class="in" placeholder="Ej. Valle Aurora" maxlength="60"></div>
+    <span class="muted small">Después agregue sus casas con «Agregar casa». El bloque puede ser letra o número.</span>
+    <button class="btn btn-dark" data-act="addcondo">Agregar condominio</button></div>`;
+  if(adm&&formOpen.casas)h+=`<div class="card section stack"><div class="row between"><h3>Agregar casa</h3><button class="icon-btn light" style="width:36px;height:36px" data-act="toggleform" data-f="casas" aria-label="Cerrar">${I.x}</button></div>
+    <div class="field"><label for="cc-condo">Condominio</label><select id="cc-condo" class="in">${L.map(c=>`<option ${c===lastCondo?"selected":""}>${esc(c)}</option>`).join("")}</select></div>
     <div class="two"><div class="field"><label for="cc-bloque">Bloque</label><span id="cc-bl-wrap" style="display:contents">${bloqueInput("cc-bloque",lastCondo,lastBloque)}</span></div>
     <div class="field"><label for="cc-num">Número de casa</label><input id="cc-num" class="in num" inputmode="numeric" placeholder="Ej. 12, o 1-20 para varias"></div></div>
     <button class="btn btn-dark" data-act="addcasas">Agregar casa</button></div>`;
-  CONDOS.forEach(cn=>{
+  L.forEach(cn=>{
     const cs=S.casas.filter(c=>c.condominio===cn);
-    h+=`<div class="section"><div class="section-head"><h2>${cn}</h2><span class="muted small num">${cs.length} casas</span></div>`;
+    h+=`<div class="section"><div class="section-head"><h2>${esc(cn)}</h2><span class="row" style="gap:12px;align-items:center"><span class="muted small num">${cs.length} casas</span>${adm?`<button class="link small" data-act="editcondo" data-n="${esc(cn)}">Renombrar</button>${cs.length?"":`<button class="link small" style="color:var(--danger)" data-act="delcondo" data-n="${esc(cn)}">Eliminar</button>`}`:""}</span></div>`;
     if(!cs.length)h+=`<div class="card muted small">Aún no hay casas registradas.</div>`;
     else h+=`<div class="card" style="padding:4px 18px">${cs.map(c=>{const n=S.tareas.filter(t=>t.casaId===c.id&&t.estado!=="cancelada").length;return `<div class="list-item"><span class="dd-ico" style="width:38px;height:38px;border-radius:10px;font-weight:800;font-size:13px">${esc(c.bloque||"–")}</span><span style="flex:1;min-width:0"><b>${c.bloque?"Bloque "+esc(c.bloque)+" · ":""}Casa ${esc(c.numero)}</b>${c.demo?' <span class="muted small">(ejemplo)</span>':""}<br><span class="muted small num">${n} ${n===1?"trabajo":"trabajos"}</span></span>${isAdmin()&&!readOnly?`<button class="btn btn-ghost btn-sm" data-act="editcasa" data-id="${c.id}">Editar</button><button class="btn btn-danger btn-sm" data-act="delcasa" data-id="${c.id}">Eliminar</button>`:""}</div>`}).join("")}</div>`;
     h+=`</div>`;
@@ -1045,6 +1061,7 @@ function openSheet(s){sheet=s;const L=document.getElementById("layer");let body=
   else if(s.kind==="drawer")body=sheetDrawer();
   else if(s.kind==="avisos")body=sheetAvisos();
   else if(s.kind==="editcasa")body=sheetEditCasa(s);
+  else if(s.kind==="editcondo")body=sheetEditCondo(s);
   else if(s.kind==="edittrab")body=sheetEditTrab(s);
   else if(s.kind==="duracion")body=sheetDuracion(s);
   else if(s.kind==="trab")body=sheetTrab(s);
@@ -1126,7 +1143,7 @@ document.addEventListener("pointermove",e=>{if(ckDrag&&CK)ckFromPoint(e)});
 document.addEventListener("pointerup",()=>{if(!ckDrag)return;ckDrag=false;if(CK&&CK.mode==="h")setTimeout(()=>{if(CK&&CK.mode==="h"){CK.mode="m";renderClock()}},200)});
 document.addEventListener("pointercancel",()=>{ckDrag=false});
 
-function casaOptions(sel){return CONDOS.map(cn=>{const cs=S.casas.filter(c=>c.condominio===cn);return cs.length?`<optgroup label="${cn}">${cs.map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${esc(cn)} · ${c.bloque?"Bloque "+esc(c.bloque)+" · ":""}Casa ${esc(c.numero)}</option>`).join("")}</optgroup>`:""}).join("")}
+function casaOptions(sel){return condos().map(cn=>{const cs=S.casas.filter(c=>c.condominio===cn);return cs.length?`<optgroup label="${cn}">${cs.map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${esc(cn)} · ${c.bloque?"Bloque "+esc(c.bloque)+" · ":""}Casa ${esc(c.numero)}</option>`).join("")}</optgroup>`:""}).join("")}
 /* Selector de casa en pasos: condominio → bloque → casa */
 let nCondo="",nBloque="";
 function ordNum(a,b){return String(a).localeCompare(String(b),"es",{numeric:true,sensitivity:"base"})}
@@ -1144,10 +1161,10 @@ function casaPasoHtml(cn,bl,sel){
     :casaSel;
 }
 function casaPicker(sel){
-  const c0=casa(sel), condos=CONDOS.filter(cn=>S.casas.some(c=>c.condominio===cn));
-  const cn=c0?c0.condominio:(condos.includes(nCondo)?nCondo:(condos.length===1?condos[0]:""));
+  const c0=casa(sel), cds=condos().filter(cn=>S.casas.some(c=>c.condominio===cn));
+  const cn=c0?c0.condominio:(cds.includes(nCondo)?nCondo:(cds.length===1?cds[0]:""));
   const bl=c0?(c0.bloque||""):(cn===nCondo?nBloque:"");
-  return `<div class="stack" style="gap:8px"><select id="n-condo" class="in" aria-label="Condominio"><option value="">Condominio…</option>${condos.map(c=>`<option ${c===cn?"selected":""}>${esc(c)}</option>`).join("")}</select>
+  return `<div class="stack" style="gap:8px"><select id="n-condo" class="in" aria-label="Condominio"><option value="">Condominio…</option>${cds.map(c=>`<option ${c===cn?"selected":""}>${esc(c)}</option>`).join("")}</select>
     <div id="n-casa-wrap">${casaPasoHtml(cn,bl,sel)}</div></div>`;
 }
 function trabOptions(sel){return S.trab.map(t=>`<option value="${t.id}" ${t.id===sel?"selected":""}>${esc(t.nombre)}${t.especialidad?" · "+esc(t.especialidad):""}</option>`).join("")}
@@ -1922,7 +1939,11 @@ document.addEventListener("click",async e=>{
     case "savecasa":{const bl=document.getElementById("ec-bl").value.trim().toUpperCase(),num=document.getElementById("ec-num").value.trim();if(!bl||!num){toast("Indique bloque y número.");break}
       const c0=casa(id);if(S.casas.some(c=>c.id!==id&&c.condominio===c0.condominio&&String(c.bloque||"").toUpperCase()===bl&&String(c.numero)===num)){toast("Ya existe esa casa en "+c0.condominio+".");break}
       try{await patch("casas",id,{bloque:bl,numero:num});closeSheet();toast("Casa actualizada.")}catch(er){}break}
-    case "toggleform":formOpen[el.dataset.f]=!formOpen[el.dataset.f];render();if(formOpen[el.dataset.f]){const f=document.getElementById(el.dataset.f==="casas"?"cc-bloque":"tw-nom");if(f)f.focus()}break;
+    case "toggleform":formOpen[el.dataset.f]=!formOpen[el.dataset.f];render();if(formOpen[el.dataset.f]){const f=document.getElementById({casas:"cc-bloque",condo:"cn-nom"}[el.dataset.f]||"tw-nom");if(f)f.focus()}break;
+    case "addcondo":el.disabled=true;await addCondo();el.disabled=false;break;
+    case "editcondo":openSheet({kind:"editcondo",n:el.dataset.n});break;
+    case "savecondo":el.disabled=true;await renombrarCondo(sheet&&sheet.n,document.getElementById("ec-cn").value);el.disabled=false;break;
+    case "delcondo":await borrarCondo(el.dataset.n);break;
     case "picker":openSheet({kind:"picker",id,P:{week:null,day:null,slot:null}});break;
     case "pkweek":{const P=curP();P.week=Math.max(0,Math.min(7,P.week+(+el.dataset.n)));rerenderPicker();break}
     case "pkday":{const P=curP();P.day=el.dataset.d;P.slot=null;rerenderPicker();break}
@@ -2014,6 +2035,53 @@ async function addCasas(){
   if(n){const f=document.getElementById("cc-num");if(f)f.value=""}
   toast(n?`${n===1?"Casa "+nums[0]:n+" casas"} agregada${n===1?"":"s"} al bloque ${bloque} de ${cn}.${dup?" "+dup+" ya existían.":""}`:"Esa casa ya estaba registrada.");
 }
+// ---------- condominios: agregar, renombrar, eliminar ----------
+function nombreCondoOk(nom,excepto){
+  nom=String(nom||"").replace(/\s+/g," ").trim();
+  if(!nom){toast("Escriba el nombre del condominio.");return null}
+  if(condos().some(c=>c!==excepto&&c.toLowerCase()===nom.toLowerCase())){toast("Ya existe un condominio con ese nombre.");return null}
+  return nom;
+}
+// los 4 de siempre se registran la primera vez que se agrega uno (en Supabase ya vienen del SQL)
+async function asegurarCondosBase(){
+  if(S.condos.length)return;
+  const L=condos();for(let i=0;i<L.length;i++)await put("condominios",condoId(L[i]),{nombre:L[i],orden:i+1,creado:new Date().toISOString()});
+}
+async function addCondo(){
+  const f=document.getElementById("cn-nom");const nom=nombreCondoOk(f&&f.value);if(!nom){f&&f.focus();return}
+  try{await asegurarCondosBase();
+    const orden=Math.max(0,...S.condos.map(c=>c.orden||0),condos().length)+1;
+    await put("condominios",condoId(nom)+(S.condos.some(c=>c.id===condoId(nom))?"-"+Date.now().toString(36):""),{nombre:nom,orden,creado:new Date().toISOString()});
+  }catch(e){return}
+  lastCondo=nom;lastBloque="";formOpen.condo=false;formOpen.casas=true;render();
+  toast(nom+" agregado. Ahora agregue sus casas.");
+}
+function sheetEditCondo(s){
+  const n=S.casas.filter(c=>c.condominio===s.n).length;
+  return head("Renombrar condominio",esc(s.n)+" · "+n+" casas")+`<div class="stack"><div class="field"><label for="ec-cn">Nombre</label><input id="ec-cn" class="in" value="${esc(s.n)}" maxlength="60"></div>
+  ${n?`<span class="muted small">El nombre nuevo se aplica a sus ${n} casas. Las tareas y reportes las siguen mostrando con el nombre nuevo.</span>`:""}
+  <button class="btn btn-dark" data-act="savecondo">Guardar</button></div>`;
+}
+async function renombrarCondo(viejo,nuevo){
+  if(!viejo)return;const nom=nombreCondoOk(nuevo,viejo);if(!nom)return;
+  if(nom===viejo){closeSheet();return}
+  try{
+    await asegurarCondosBase();
+    const reg=S.condos.find(c=>c.nombre===viejo);
+    if(reg)await patch("condominios",reg.id,{nombre:nom});
+    else await put("condominios",condoId(nom),{nombre:nom,orden:condos().length+1,creado:new Date().toISOString()});
+    // en Supabase las casas se actualizan solas (on update cascade); aquí se actualizan una por una
+    if(!S.supa||!reg)for(const c of S.casas.filter(x=>x.condominio===viejo))await patch("casas",c.id,{condominio:nom});
+  }catch(e){return}
+  if(lastCondo===viejo)lastCondo=nom;if(nCondo===viejo)nCondo=nom;
+  closeSheet();toast("Condominio renombrado a "+nom+".");
+}
+async function borrarCondo(nom){
+  if(S.casas.some(c=>c.condominio===nom)){toast("Primero elimine o mueva sus casas.");return}
+  if(!confirm("¿Eliminar el condominio «"+nom+"»?"))return;
+  try{await asegurarCondosBase();const reg=S.condos.find(c=>c.nombre===nom);if(reg)await del("condominios",reg.id)}catch(e){return}
+  toast(nom+" eliminado.");
+}
 async function addTrab(){
   const nom=document.getElementById("tw-nom").value.trim();if(!nom){toast("Escriba el nombre.");return}
   const mail=document.getElementById("tw-mail").value.trim().toLowerCase();
@@ -2026,7 +2094,7 @@ async function cargarDemo(){
   toast("Cargando ejemplo…");
   const nombres=[["Carlos Mora (ejemplo)","Fontanería"],["Luis Jiménez (ejemplo)","Electricidad"],["Andrés Vargas (ejemplo)","Acabados"]];
   const wids=[];for(let i=0;i<nombres.length;i++){const id="wdemo"+i;wids.push(id);await put("trabajadores",id,{nombre:nombres[i][0],especialidad:nombres[i][1],telefono:"",color:COLORS[i],demo:true,creado:new Date(Date.now()+i).toISOString()})}
-  const cids=[];for(const cn of CONDOS){for(const [bl,num] of [["A","12"],["B","27"],["C","41"]]){const id=casaId(cn,bl,num)+"-demo";cids.push(id);await put("casas",id,{condominio:cn,bloque:bl,numero:num,demo:true})}}
+  const cids=[];for(const cn of CONDOS_BASE){for(const [bl,num] of [["A","12"],["B","27"],["C","41"]]){const id=casaId(cn,bl,num)+"-demo";cids.push(id);await put("casas",id,{condominio:cn,bloque:bl,numero:num,demo:true})}}
   const base=startOfDay(new Date());const plan=[[0,10,0,0,"Fuga de agua / fontanería",90],[0,14,1,4,"Revisión eléctrica",90],[1,8,2,7,"Ajuste de puertas",60],[1,10,0,2,"Filtración en techo",120],[2,13,1,9,"Tomacorriente o apagador",45],[3,8,2,5,"Retoque de pintura",180],[4,10,0,11,"Filtración en techo",120],[8,10,1,3,"Fisura en pared",120],[12,8,2,6,"Filtración en techo",120]];
   for(let i=0;i<plan.length;i++){const [dd,h,w,c,tipo,dur]=plan[i];let d=addMin(addDays(base,dd),h*60);if(d.getDay()===6)d=addDays(d,2);if(d.getDay()===0)d=addDays(d,1);
     await put("tareas","tdemo"+i,{casaId:cids[c],trabajadorId:wids[w],tipo,descripcion:"Tarea de ejemplo",duracion:dur,inicio:toStr(d),estado:"programada",opciones:[],fotos:[],nota:"",demo:true,creada:new Date().toISOString(),historial:[{t:toStr(new Date()),txt:"Creada (ejemplo)"}]})}
