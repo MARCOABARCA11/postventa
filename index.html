@@ -414,6 +414,40 @@ function unicos(list){const seen=new Set();return list.filter(t=>{if(!t.grupo)re
 // choques de todo el equipo a esa hora (tw = trabajador nuevo para la tarea t, si se reasigna)
 function conflictosEquipo(t,s,dur,tw){const ms=abiertosGrupo(t),ex=ms.map(x=>x.id);return ms.map(m=>m.id===t.id?(tw||m.trabajadorId):m.trabajadorId).flatMap(w=>conflictos(w,s,dur,ex))}
 function trabEquipo(t,tw){return abiertosGrupo(t).map(m=>m.id===t.id?(tw||m.trabajadorId):m.trabajadorId)}
+// ---------- obras de varios días: una tarea por día (y por trabajador), enlazadas por "serie" ----------
+const MAX_DIAS=10;
+function sigHabil(d){let y=addDays(d,1);while(y.getDay()===0||y.getDay()===6)y=addDays(y,1);return y}
+// n inicios en días hábiles seguidos, a la misma hora
+function diasHabiles(s,n){const out=[];let d=parse(s);for(let i=0;i<n;i++){out.push(toStr(d));d=sigHabil(d)}return out}
+function serieDe(t){if(!t||!t.serie)return [t];return S.tareas.filter(x=>x.serie===t.serie&&(x.id===t.id||x.estado!=="cancelada"))}
+function diasDe(t){return [...new Set(serieDe(t).filter(x=>x.inicio).map(x=>x.inicio.slice(0,10)))].sort()}
+function enSerie(t){return !!(t&&t.serie)&&diasDe(t).length>1}
+function diaTxt(t){if(!enSerie(t)||!t.inicio)return "";const ds=diasDe(t);return "Día "+(ds.indexOf(t.inicio.slice(0,10))+1)+" de "+ds.length}
+// una tarea representativa por día (la primera del equipo de ese día)
+function porDiaSerie(t){const m=new Map();serieDe(t).filter(x=>x.inicio).sort((a,b)=>a.inicio<b.inicio?-1:1).forEach(x=>{const k=x.inicio.slice(0,10);if(!m.has(k))m.set(k,x)});return [...m.values()]}
+function fechasSerieTxt(t){return porDiaSerie(t).map(x=>{const d=parse(x.inicio);return `• ${fLarga(d)}, de ${hhmm(d)} a ${hhmm(finT(d,x.duracion))}`}).join("\n")}
+// qué tareas se mueven y a qué hora: solo este día (con su equipo) u "obra" = este día y los siguientes
+function movimientos(t,s,alcance,tw){
+  if(alcance!=="obra"||!enSerie(t)){const ms=s!==t.inicio?abiertosGrupo(t):[t];return ms.map(m=>({m,s,w:m.id===t.id?(tw||m.trabajadorId):m.trabajadorId}))}
+  const abiertos=serieDe(t).filter(x=>x.inicio&&(x.estado==="programada"||x.estado==="por_confirmar")&&x.inicio.slice(0,10)>=t.inicio.slice(0,10));
+  const dias=[...new Set(abiertos.map(x=>x.inicio.slice(0,10)))].sort(),nuevos=diasHabiles(s,dias.length);
+  return abiertos.map(m=>({m,s:nuevos[dias.indexOf(m.inicio.slice(0,10))],w:m.trabajadorId}));
+}
+function chequeoMov(moves){const ex=moves.map(x=>x.m.id);return {cf:moves.flatMap(x=>conflictos(x.w,x.s,x.m.duracion,ex)),fuera:moves.some(x=>fueraJornada(x.s,x.m.duracion))}}
+function proximoMov(t,desde,alcance){
+  if(alcance!=="obra"||!enSerie(t))return proximoLibre(trabEquipo(t),desde,t.duracion,abiertosGrupo(t).map(x=>x.id));
+  let d=new Date(desde);d.setSeconds(0,0);const m=d.getMinutes();if(m%30)d=addMin(d,30-m%30);
+  for(let i=0;i<60*24;i++){const s=toStr(d);if(d>new Date()&&!fueraJornada(s,t.duracion)){const c=chequeoMov(movimientos(t,s,"obra"));if(!c.cf.length&&!c.fuera)return s}d=addMin(d,30)}
+  return null;
+}
+function conflictMsgF(list){return list.map(t=>{const s=parse(t.inicio);return `${esc(casaTxt(casa(t.casaId)))} el ${fCorta(s)} (${hhmm(s)}–${hhmm(finT(s,t.duracion))})`}).join(", ")}
+function proximoLibreDias(ids,desde,dur,n){
+  let d=new Date(desde);d.setSeconds(0,0);const m=d.getMinutes();if(m%30)d=addMin(d,30-m%30);
+  for(let i=0;i<60*24;i++){const s=toStr(d);
+    if(d>new Date()&&!fueraJornada(s,dur)&&diasHabiles(s,n).every(f=>[].concat(ids).every(w=>!conflictos(w,f,dur).length)))return s;
+    d=addMin(d,30)}
+  return null;
+}
 function conflictMsg(list){return list.map(t=>{const s=parse(t.inicio);return `${esc(casaTxt(casa(t.casaId)))} (${hhmm(s)}–${hhmm(finT(s,t.duracion))})`}).join(", ")}
 
 // ---------- modo local (HTML abierto fuera de claude.ai): guarda en este navegador ----------
@@ -465,7 +499,7 @@ async function restaurarRespaldo(file){
 const COLS={
   casas:["id","condominio","bloque","numero","propietario","telefono","fecha_entrega","demo","creado"],
   trabajadores:["id","nombre","telefono","especialidad","color","email","demo","creado"],
-  tareas:["id","casa_id","trabajador_id","tipo","descripcion","duracion","inicio","estado","fotos","nota","motivo","historial","creada","reportado_en","recordatorio_en","grupo","demo"],
+  tareas:["id","casa_id","trabajador_id","tipo","descripcion","duracion","inicio","estado","fotos","nota","motivo","historial","creada","reportado_en","recordatorio_en","grupo","serie","demo"],
   avisos:["id","trabajador_id","tarea_id","reporte_id","texto","creado","leido"],
   reportes:["id","titulo","texto","casa_id","trabajador_id","fotos","creado","actualizado","enviado_en","demo"],
   config:["id","telefono"]
@@ -773,7 +807,7 @@ function remCard(t){
       <div class="rem-main">
         <div class="row between" style="align-items:flex-start"><h3>${esc(casaTxt(c))}</h3><span class="pill st-${t.estado}">${ESTADO[t.estado]}</span></div>
         <div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div>
-        <div class="meta"><span>${enEquipo(t)?I.team:I.user}${esc(equipoTxt(t))}</span><span>${I.clock}${durTxt(t.duracion)}</span><span>${fCorta(d)}</span></div>
+        <div class="meta"><span>${enEquipo(t)?I.team:I.user}${esc(equipoTxt(t))}</span><span>${I.clock}${durTxt(t.duracion)}</span><span>${fCorta(d)}</span>${enSerie(t)?`<span><b>${diaTxt(t)}</b></span>`:""}</div>
         <div class="soon ${r.cls||""}" style="margin-top:6px">${r.t}${t.estado==="por_confirmar"?" · horario tentativo":""}</div>
       </div>
     </div>
@@ -803,7 +837,7 @@ function layoutLanes(items){
 function evHtml(t,n){
   const s=parse(t.inicio);const top=((s.getHours()+s.getMinutes()/60)-H0)*HH;const hgt=Math.max(26,(finT(s,t.duracion||60)-s)/36e5*HH-3);
   const w=100/n;const c=casa(t.casaId);const cls=t.estado==="por_confirmar"?"tent":t.estado==="finalizada"?"done":t.estado==="cancelada"?"cancel":"";
-  return `<button class="ev ${cls}" data-act="det" data-id="${t.id}" style="top:${top}px;height:${hgt}px;left:calc(${t._lane*w}% + 3px);width:calc(${w}% - 6px);${evStyle(t.trabajadorId)}"><b>${hhmmShort(s)} ${esc(c?c.condominio.replace("Valle ","")+" "+c.numero:"")}</b><span>${esc(t.tipo)}</span>${hgt>60?`<span>${esc(trab(t.trabajadorId)?.nombre||"")}</span>`:""}</button>`;
+  return `<button class="ev ${cls}" data-act="det" data-id="${t.id}" style="top:${top}px;height:${hgt}px;left:calc(${t._lane*w}% + 3px);width:calc(${w}% - 6px);${evStyle(t.trabajadorId)}"><b>${hhmmShort(s)} ${esc(c?c.condominio.replace("Valle ","")+" "+c.numero:"")}</b><span>${esc(t.tipo)}${enSerie(t)?" · "+diaTxt(t):""}</span>${hgt>60?`<span>${esc(trab(t.trabajadorId)?.nombre||"")}</span>`:""}</button>`;
 }
 function timeGrid(cols,minColW){
   // cols: [{head, items, off, today}]
@@ -827,7 +861,7 @@ function listDay(items){
   if(!items.length)return `<div class="card empty daylist"><h3>Sin trabajos este día</h3><p>${isAdmin()?"Use Nueva tarea para programar uno.":"No tiene visitas programadas."}</p></div>`;
   return `<div class="daylist rem-list">${unicos(items).map(remCardLite).join("")}</div>`;
 }
-function remCardLite(t){const d=parse(t.inicio),c=casa(t.casaId);return `<button class="rem" style="text-align:left;width:100%" data-act="det" data-id="${t.id}"><div class="rem-top"><div class="timebox"><b>${hhmmShort(d)}</b><span>${d.getHours()<12?"a. m.":"p. m."}</span></div><div class="rem-main"><div class="row between" style="align-items:flex-start"><h3>${esc(casaTxt(c))}</h3><span class="pill st-${t.estado}">${ESTADO[t.estado]}</span></div><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${enEquipo(t)?I.team:I.user}${esc(equipoTxt(t))}</span><span>${I.clock}${durTxt(t.duracion)} · hasta ${hhmm(finT(d,t.duracion))}</span></div></div></div></button>`}
+function remCardLite(t){const d=parse(t.inicio),c=casa(t.casaId);return `<button class="rem" style="text-align:left;width:100%" data-act="det" data-id="${t.id}"><div class="rem-top"><div class="timebox"><b>${hhmmShort(d)}</b><span>${d.getHours()<12?"a. m.":"p. m."}</span></div><div class="rem-main"><div class="row between" style="align-items:flex-start"><h3>${esc(casaTxt(c))}</h3><span class="pill st-${t.estado}">${ESTADO[t.estado]}</span></div><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${enEquipo(t)?I.team:I.user}${esc(equipoTxt(t))}</span><span>${I.clock}${durTxt(t.duracion)} · hasta ${hhmm(finT(d,t.duracion))}</span>${enSerie(t)?`<span><b>${diaTxt(t)}</b></span>`:""}</div></div></div></button>`}
 
 function viewDia(){
   const a=startOfDay(fecha),b=addDays(a,1);const items=enRango(vis(),a,b);
@@ -1130,7 +1164,9 @@ function sheetNueva(s){
       ${S.trab.length>1?`<button type="button" class="link small" data-act="addtw" style="justify-self:start">${I.plus} Agregar otro trabajador (trabajo en equipo)</button>`:""}</div>
     <div class="field"><label for="n-tipo">Tipo de trabajo</label><select id="n-tipo" class="in">${TIPOS.map(([n,d])=>`<option value="${esc(n)}" data-d="${d}" ${n===p.tipo?"selected":""}>${esc(n)}</option>`).join("")}</select></div>
     <div class="field"><label for="n-desc">Descripción</label><textarea id="n-desc" class="in" placeholder="Qué reportó el propietario, dónde está el daño…">${esc(p.descripcion||"")}</textarea></div>
-    <div class="field"><span class="lbl">Tiempo estimado</span><div class="choices" id="n-dur">${DUR.map(m=>`<button type="button" class="choice" data-act="dur" data-m="${m}" aria-pressed="${m===(p.duracion||120)}">${durTxt(m)}</button>`).join("")}</div></div>
+    <div class="field"><span class="lbl">¿Cuántos días?</span><div class="row wrapr" style="gap:10px;align-items:center"><div class="seg" role="group" id="n-dias-seg"><button type="button" data-act="ndias" data-m="1" aria-pressed="true">Un día</button><button type="button" data-act="ndias" data-m="n" aria-pressed="false">Varios días</button></div>
+      <select id="n-dias" class="in" hidden aria-label="Cantidad de días" style="width:auto;min-width:120px">${Array.from({length:MAX_DIAS-1},(_,i)=>i+2).map(n=>`<option value="${n}">${n} días</option>`).join("")}</select></div></div>
+    <div class="field"><span class="lbl" id="n-dur-lbl">Tiempo estimado</span><div class="choices" id="n-dur">${DUR.map(m=>`<button type="button" class="choice" data-act="dur" data-m="${m}" aria-pressed="${m===(p.duracion||120)}">${durTxt(m)}</button>`).join("")}</div></div>
     <div class="field"><span class="lbl">¿Quién define la fecha?</span><div class="seg" role="group"><button type="button" data-act="nmodo" data-m="fija" aria-pressed="true">Asignar ahora</button><button type="button" data-act="nmodo" data-m="prop" aria-pressed="false">Que elija el propietario</button></div></div>
     <div id="n-fija" class="two"><div class="field"><label for="n-fecha">Fecha</label><input id="n-fecha" type="date" class="in" value="${dd}"></div><div class="field"><label for="n-hora-btn">Hora</label>${clockField("n-hora",tt)}</div></div>
     <div id="n-prop" hidden class="alert info">El propietario recibirá un enlace donde verá los días de lunes a viernes y elegirá un bloque de <b id="n-prop-dur">2 h</b> dentro del horario (6 a. m. a 6 p. m., último inicio 5 p. m.), solo entre los espacios libres del trabajador.</div>
@@ -1145,7 +1181,9 @@ function nuevaVals(){
   const opciones=[];
   const inicio=prop?null:(f.querySelector("#n-fecha").value&&f.querySelector("#n-hora").value?f.querySelector("#n-fecha").value+"T"+f.querySelector("#n-hora").value:null);
   const ids=[...new Set([f.querySelector("#n-trab").value,...[...f.querySelectorAll(".n-trab-x")].map(x=>x.value)].filter(Boolean))];
-  return {casaId:f.querySelector("#n-casa").value,trabajadorId:ids[0]||"",trabajadorIds:ids,tipo:f.querySelector("#n-tipo").value,descripcion:f.querySelector("#n-desc").value.trim(),duracion:dur,prop,opciones,inicio};
+  const varios=f.querySelector('#n-dias-seg [data-m="n"]')?.getAttribute("aria-pressed")==="true";
+  const dias=varios&&!prop?(+f.querySelector("#n-dias").value||2):1;
+  return {casaId:f.querySelector("#n-casa").value,trabajadorId:ids[0]||"",trabajadorIds:ids,tipo:f.querySelector("#n-tipo").value,descripcion:f.querySelector("#n-desc").value.trim(),duracion:dur,prop,opciones,inicio,dias,fechas:inicio?diasHabiles(inicio,dias):[]};
 }
 function checkNueva(){
   syncClock("n-hora");
@@ -1153,7 +1191,19 @@ function checkNueva(){
   let msgs=[],ok=true;
   const pd=document.getElementById("n-prop-dur");if(pd)pd.textContent=durTxt(v.duracion);
   if(v.duracion>(WORK1-WORK0)*60-DESCANSOS.reduce((n,[a,b])=>n+b-a,0)){ok=false;msgs.push(`<div class="alert bad">La duración supera la jornada de un día.</div>`)}
-  if(!v.prop&&v.trabajadorId&&v.inicio){
+  const dl=document.getElementById("n-dur-lbl");if(dl)dl.textContent=v.dias>1?"Tiempo estimado por día":"Tiempo estimado";
+  if(!v.prop&&v.trabajadorId&&v.inicio&&v.dias>1){
+    // obra de varios días: la misma hora en días hábiles seguidos; todos deben estar libres todos los días
+    const s=v.inicio,ids=v.trabajadorIds,fs=v.fechas;
+    const ocupados=ids.map(w=>({w,cf:fs.flatMap(f=>conflictos(w,f,v.duracion))})).filter(x=>x.cf.length);
+    const nx=()=>proximoLibreDias(ids,parse(s),v.duracion,v.dias);
+    const usar=n=>n?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibre" data-s="${n}">Empezar ${fCorta(parse(n))}, ${hhmm(parse(n))}</button>`:"";
+    if(parse(s)<new Date()){ok=false;msgs.push(`<div class="alert bad">Esa hora ya pasó.</div>`)}
+    else if(fueraJornada(s,v.duracion)){ok=false;msgs.push(`<div class="alert bad">Fuera del horario de trabajo: ${HORARIO_TXT}.${usar(nx())}</div>`)}
+    else if(ocupados.length){ok=false;msgs.push(`<div class="alert bad">${ocupados.map(o=>`${esc(trab(o.w).nombre.split(" ")[0])} ya tiene ${conflictMsgF(o.cf)}`).join(". ")}. Próximo espacio donde ${ids.length>1?"todos están libres":"está libre"} los ${v.dias} días:${usar(nx())||" no hay en las próximas semanas."}</div>`)}
+    else{const a=parse(fs[0]),b=parse(fs[fs.length-1]);msgs.push(`<div class="alert okk">Libre${ids.length>1?" para todo el equipo":""} los ${v.dias} días hábiles: del ${fCorta(a)} al ${fCorta(b)}, cada día de ${hhmm(a)} a ${hhmm(finT(a,v.duracion))} (sábados y domingos no se trabaja).</div>`)}
+  }
+  else if(!v.prop&&v.trabajadorId&&v.inicio){
     const s=v.inicio,ids=v.trabajadorIds;
     const ocupados=ids.map(w=>({w,cf:conflictos(w,s,v.duracion)})).filter(x=>x.cf.length);
     if(parse(s)<new Date()){ok=false;msgs.push(`<div class="alert bad">Esa hora ya pasó.</div>`)}
@@ -1167,21 +1217,28 @@ function checkNueva(){
 }
 async function guardarNueva(){
   const v=nuevaVals();if(!v)return;
-  const ids=v.trabajadorIds,grupo=ids.length>1?uid("g"):null;
+  const ids=v.trabajadorIds,varios=ids.length>1;
   const nombres=ids.map(w=>trab(w)?.nombre).filter(Boolean);
   document.getElementById("n-save").disabled=true;
-  const c=casa(v.casaId);let primero=null;
-  // una tarea por trabajador; si son varios, quedan enlazadas en el mismo equipo (grupo)
-  for(const w of ids){
-    const id=uid("t");
-    const t={casaId:v.casaId,trabajadorId:w,tipo:v.tipo,descripcion:v.descripcion,duracion:v.duracion,inicio:v.inicio,estado:v.prop?"por_confirmar":"programada",opciones:v.opciones,fotos:[],nota:"",creada:new Date().toISOString(),...(grupo?{grupo}:{}),
-      historial:[{t:toStr(new Date()),txt:(v.prop?"Creada; esperando que el propietario elija fecha":"Creada y asignada")+(grupo?" · equipo: "+listaY(nombres):"")}]};
-    try{await put("tareas",id,t)}catch(e){if(!primero){document.getElementById("n-save").disabled=false;return}break}
-    t.id=id;if(!primero)primero=id;
-    const otros=listaY(nombres.filter(n=>n!==trab(w)?.nombre));
-    await aviso(t,`Nuevo trabajo: ${t.tipo} en ${casaTxt(c)}${v.prop?" (fecha por confirmar)":", "+fCorta(parse(t.inicio))+" "+hhmm(parse(t.inicio))}${grupo?" · en equipo con "+otros:""}`);
+  const c=casa(v.casaId);let primero=null,grupo=null;
+  // varios días: una tarea por día, enlazadas por "serie" (cada día respeta la jornada y los choques)
+  const fechas=v.prop?[null]:v.fechas,serie=fechas.length>1?uid("s"):null;
+  const rangoTxt=serie?` (${fechas.length} días: del ${fCorta(parse(fechas[0]))} al ${fCorta(parse(fechas[fechas.length-1]))})`:"";
+  dias:for(let i=0;i<fechas.length;i++){
+    grupo=varios?uid("g"):null;   // el equipo de cada día queda enlazado por "grupo"
+    // una tarea por trabajador; si son varios, quedan enlazadas en el mismo equipo (grupo)
+    for(const w of ids){
+      const id=uid("t");
+      const t={casaId:v.casaId,trabajadorId:w,tipo:v.tipo,descripcion:v.descripcion,duracion:v.duracion,inicio:fechas[i],estado:v.prop?"por_confirmar":"programada",opciones:v.opciones,fotos:[],nota:"",creada:new Date().toISOString(),...(grupo?{grupo}:{}),...(serie?{serie}:{}),
+        historial:[{t:toStr(new Date()),txt:(v.prop?"Creada; esperando que el propietario elija fecha":"Creada y asignada")+(serie?` · día ${i+1} de ${fechas.length}`:"")+(grupo?" · equipo: "+listaY(nombres):"")}]};
+      try{await put("tareas",id,t)}catch(e){if(!primero){document.getElementById("n-save").disabled=false;return}toast("No se guardaron todos los días. Revise la obra.");break dias}
+      t.id=id;if(!primero)primero=id;
+      // un solo aviso por trabajador (el del primer día), con todo el rango de la obra
+      if(i===0){const otros=listaY(nombres.filter(n=>n!==trab(w)?.nombre));
+        await aviso(t,`Nuevo trabajo: ${t.tipo} en ${casaTxt(c)}${v.prop?" (fecha por confirmar)":", "+fCorta(parse(t.inicio))+" "+hhmm(parse(t.inicio))}${rangoTxt}${grupo?" · en equipo con "+otros:""}`)}
+    }
   }
-  toast(grupo?"Tarea guardada. Aviso enviado a todo el equipo.":"Tarea guardada. Aviso enviado al trabajador.");
+  toast((serie?`Obra de ${fechas.length} días guardada. `:"Tarea guardada. ")+(varios?"Aviso enviado a todo el equipo.":"Aviso enviado al trabajador."));
   openSheet({kind:"mensaje",id:primero,fresh:true});
 }
 
@@ -1193,6 +1250,9 @@ function sheetDetalle(s){
   let h=head(esc(casaTxt(c)),`<span class="pill st-${terminado?"finalizada":t.estado}" style="margin-top:6px">${terminado?"Finalizada por todo el equipo":ESTADO[t.estado]}</span>`);
   const trabRow=varios?`<dt>Equipo</dt><dd class="stack" style="gap:4px">${eq.map(m=>`<span>${esc(nom(m))} <span class="pill st-${m.estado}" style="font-size:11px;padding:1px 8px">${ESTADO[m.estado]}</span></span>`).join("")}</dd>`:`<dt>Trabajador</dt><dd>${esc(w?w.nombre:"—")}</dd>`;
   h+=`<div class="card"><dl class="kv"><dt>Trabajo</dt><dd>${esc(t.tipo)}</dd>${t.descripcion?`<dt>Detalle</dt><dd>${esc(t.descripcion)}</dd>`:""}${trabRow}${d?`<dt>Fecha</dt><dd>${fLarga(d)}</dd><dt>Hora</dt><dd>${hhmm(d)} – ${hhmm(finT(d,t.duracion))}</dd>`:`<dt>Fecha</dt><dd>Por definir: la elige el propietario</dd>`}<dt>Estimado</dt><dd>${durTxt(t.duracion)}</dd>${c&&c.propietario?`<dt>Propietario</dt><dd>${esc(c.propietario)}${c.telefono?" · "+esc(c.telefono):""}</dd>`:""}</dl></div>`;
+  if(enSerie(t)){const ds=porDiaSerie(t),hechos=ds.filter(x=>x.estado==="finalizada").length;
+    h+=`<div class="section stack" style="gap:6px"><h3>Obra de ${ds.length} días <span class="muted small" style="font-weight:500">· ${diaTxt(t)}${hechos?` · ${hechos} finalizado${hechos>1?"s":""}`:""}</span></h3>
+    ${ds.map((x,i)=>{const dx=parse(x.inicio),yo=x.inicio.slice(0,10)===t.inicio.slice(0,10);return `<button class="opt" style="text-align:left;width:100%;${yo?"border-color:var(--dark);border-width:2px":""}" data-act="det" data-id="${x.id}"><span><b>Día ${i+1}</b> · ${fCorta(dx)} · ${hhmm(dx)}–${hhmm(finT(dx,x.duracion))}</span><span class="pill st-${x.estado}" style="font-size:11px;padding:1px 8px">${ESTADO[x.estado]}</span></button>`}).join("")}</div>`}
   if(t.estado==="por_confirmar"&&isAdmin()&&!readOnly)h+=`<div class="section"><button class="btn btn-dark" style="width:100%" data-act="picker" data-id="${t.id}">Anotar el horario que eligió el propietario</button></div>`;
   // reporte de cada integrante (cada uno reporta por separado)
   for(const m of eq){if(!(m.nota||(m.fotos||[]).length))continue;
@@ -1220,16 +1280,25 @@ function sheetPosponer(s){
   const d=parse(t.inicio);
   const nextWork=x=>{let y=addDays(x,1);while(y.getDay()===0||y.getDay()===6)y=addDays(y,1);return y};
   const opts=[["1 hora más tarde",toStr(addMin(d,60))],["2 horas más tarde",toStr(addMin(d,120))],["Siguiente día hábil, misma hora",toStr(nextWork(d))],["Próxima semana, mismo día",toStr(addDays(d,7))]];
-  const nx=proximoLibre(trabEquipo(t),addMin(d,30),t.duracion,abiertosGrupo(t).map(x=>x.id));if(nx)opts.unshift([enEquipo(t)?"Próximo espacio libre para el equipo":"Próximo espacio libre",nx]);
-  return head("Posponer",esc(casaTxt(casa(t.casaId)))+" · ahora "+fCorta(d)+" "+hhmm(d)+(enEquipo(t)?" · equipo: "+esc(equipoTxt(t)):""))+`<div class="stack">${opts.map(([lab,s2])=>{const cf=conflictosEquipo(t,s2,t.duracion);const fj=fueraJornada(s2,t.duracion);const bad=cf.length||fj;const od=parse(s2);return `<div class="opt"><span style="min-width:0"><b>${lab}</b><br><span class="muted small">${fCorta(od)} · ${hhmm(od)}${cf.length?` · <span style="color:var(--danger)">choca con ${conflictMsg(cf)}</span>`:fj?` · <span style="color:var(--danger)">fuera del horario</span>`:""}</span></span><button class="btn ${bad?"btn-ghost":"btn-dark"} btn-sm" data-act="aplicarhora" data-id="${t.id}" data-s="${s2}" ${bad?"disabled":""}>Mover</button></div>`}).join("")}
+  const al=alcanceDe(t,s),obra=al==="obra";
+  const nx=proximoMov(t,addMin(d,30),al);if(nx)opts.unshift([obra?"Próximo espacio libre para toda la obra":enEquipo(t)?"Próximo espacio libre para el equipo":"Próximo espacio libre",nx]);
+  return head("Posponer",esc(casaTxt(casa(t.casaId)))+" · ahora "+fCorta(d)+" "+hhmm(d)+(enSerie(t)?" · "+diaTxt(t):"")+(enEquipo(t)?" · equipo: "+esc(equipoTxt(t)):""))+`<div class="stack">${alcanceHtml(t,s)}${opts.map(([lab,s2])=>{const ch=chequeoMov(movimientos(t,s2,al)),cf=ch.cf,fj=ch.fuera;const bad=cf.length||fj;const od=parse(s2);return `<div class="opt"><span style="min-width:0"><b>${lab}</b><br><span class="muted small">${obra?"desde el ":""}${fCorta(od)} · ${hhmm(od)}${cf.length?` · <span style="color:var(--danger)">choca con ${obra?conflictMsgF(cf):conflictMsg(cf)}</span>`:fj?` · <span style="color:var(--danger)">fuera del horario</span>`:""}</span></span><button class="btn ${bad?"btn-ghost":"btn-dark"} btn-sm" data-act="aplicarhora" data-id="${t.id}" data-s="${s2}" data-al="${al}" ${bad?"disabled":""}>Mover</button></div>`}).join("")}
   <button class="link" data-act="hora" data-id="${t.id}">Elegir otra fecha y hora ${I.next}</button></div>`;
+}
+// obras de varios días: ¿se mueve solo este día o este día y los siguientes?
+function hayDiasSiguientes(t){return enSerie(t)&&!!t.inicio&&serieDe(t).some(x=>x.inicio&&x.inicio.slice(0,10)>t.inicio.slice(0,10)&&(x.estado==="programada"||x.estado==="por_confirmar"))}
+function alcanceDe(t,s){return hayDiasSiguientes(t)&&s.alcance==="obra"?"obra":"dia"}
+function alcanceHtml(t,s,verbo){
+  if(!hayDiasSiguientes(t))return "";const al=alcanceDe(t,s);
+  return `<div class="field"><span class="lbl">Esta tarea es el ${diaTxt(t).toLowerCase()} de una obra</span><div class="seg" role="group"><button type="button" data-act="alcance" data-m="dia" aria-pressed="${al==="dia"}">Solo este día</button><button type="button" data-act="alcance" data-m="obra" aria-pressed="${al==="obra"}">${verbo||"Mover"} este y los siguientes</button></div>
+  ${al==="obra"?`<span class="muted small">${verbo?"Se cancelan este día y los que siguen.":"Los días siguientes se acomodan en días hábiles seguidos, a la misma hora."}</span>`:""}</div>`;
 }
 function sheetHora(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Cambiar hora");
-  const d=parse(t.inicio);
-  return head("Cambiar fecha y hora",esc(casaTxt(casa(t.casaId)))+" · "+esc(trab(t.trabajadorId)?.nombre||""))+`<div class="stack">
-  <div class="two"><div class="field"><label for="h-fecha">Fecha</label><input id="h-fecha" type="date" class="in" value="${dkey(d)}"></div><div class="field"><label for="h-hora-btn">Hora</label>${clockField("h-hora",pad(d.getHours())+":"+pad(d.getMinutes()))}</div></div>
-  <div class="field"><label for="h-trab">Trabajador</label><select id="h-trab" class="in">${S.trab.map(w=>`<option value="${w.id}" ${w.id===t.trabajadorId?"selected":""}>${esc(w.nombre)}</option>`).join("")}</select></div>
+  const d=parse(t.inicio),obra=alcanceDe(t,s)==="obra";
+  return head("Cambiar fecha y hora",esc(casaTxt(casa(t.casaId)))+" · "+esc(trab(t.trabajadorId)?.nombre||"")+(enSerie(t)?" · "+diaTxt(t):""))+`<div class="stack">${alcanceHtml(t,s)}
+  <div class="two"><div class="field"><label for="h-fecha">${obra?"Nueva fecha de este día":"Fecha"}</label><input id="h-fecha" type="date" class="in" value="${s.hf||dkey(d)}"></div><div class="field"><label for="h-hora-btn">Hora</label>${clockField("h-hora",s.hh||pad(d.getHours())+":"+pad(d.getMinutes()))}</div></div>
+  <div class="field" ${obra?"hidden":""}><label for="h-trab">Trabajador</label><select id="h-trab" class="in">${S.trab.map(w=>`<option value="${w.id}" ${w.id===t.trabajadorId?"selected":""}>${esc(w.nombre)}</option>`).join("")}</select></div>
   <div id="h-check"></div><button class="btn btn-lime" id="h-save" data-act="guardarhora" data-id="${t.id}">Guardar cambio y avisar</button></div>`;
 }
 function checkHora(){
@@ -1237,7 +1306,18 @@ function checkHora(){
   const t=S.tareas.find(x=>x.id===sheet?.id);const out=document.getElementById("h-check");if(!t||!out)return;
   const f=document.getElementById("h-fecha").value,h=document.getElementById("h-hora").value,tw=document.getElementById("h-trab").value;
   const btn=document.getElementById("h-save");if(!f||!h){btn.disabled=true;return}
-  const s=f+"T"+h;const cf=conflictosEquipo(t,s,t.duracion,tw);let ok=true,m="";
+  const s=f+"T"+h;
+  if(alcanceDe(t,sheet)==="obra"){
+    // mover este día y los siguientes
+    const mv=movimientos(t,s,"obra"),ch=chequeoMov(mv);let ok=true,m="";
+    const usar=nx=>nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibreh" data-s="${nx}">Empezar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:"";
+    if(parse(s)<new Date()){ok=false;m=`<div class="alert bad">Esa hora ya pasó.</div>`}
+    else if(ch.fuera){ok=false;m=`<div class="alert bad">Fuera del horario de trabajo: ${HORARIO_TXT}.${usar(proximoMov(t,parse(s),"obra"))}</div>`}
+    else if(ch.cf.length){ok=false;m=`<div class="alert bad">Choca con ${conflictMsgF(ch.cf)}.${usar(proximoMov(t,parse(s),"obra"))}</div>`}
+    else{const ds=[...new Set(mv.map(x=>x.s))].sort();m=`<div class="alert okk">Libre: ${ds.length} día${ds.length>1?"s":""}, del ${fCorta(parse(ds[0]))} al ${fCorta(parse(ds[ds.length-1]))}.</div>`}
+    out.innerHTML=m;btn.disabled=!ok;return;
+  }
+  const cf=conflictosEquipo(t,s,t.duracion,tw);let ok=true,m="";
   const ws=trabEquipo(t,tw),ex=abiertosGrupo(t).map(x=>x.id);
   if(tw!==t.trabajadorId&&grupoDe(t).some(x=>x.id!==t.id&&x.trabajadorId===tw)){ok=false;m=`<div class="alert bad">${esc(trab(tw)?.nombre||"")} ya está en el equipo de esta tarea.</div>`}
   else if(parse(s)<new Date()){ok=false;m=`<div class="alert bad">Esa hora ya pasó.</div>`}
@@ -1246,27 +1326,35 @@ function checkHora(){
   else m=`<div class="alert okk">Horario libre${enEquipo(t)?" para todo el equipo ("+esc(listaY(ws.map(w=>trab(w)?.nombre).filter(Boolean)))+")":""}.</div>`;
   out.innerHTML=m;btn.disabled=!ok;
 }
-async function aplicarHora(id,s,tw){
+async function aplicarHora(id,s,tw,alcance){
   const t=S.tareas.find(x=>x.id===id);if(!t)return;
+  const obra=alcance==="obra"&&enSerie(t);if(obra)tw=null;
   tw=tw||t.trabajadorId;const cambioTrab=tw!==t.trabajadorId;const iniAntes=t.estado==="programada"?t.inicio:null;
   if(cambioTrab&&grupoDe(t).some(x=>x.id!==t.id&&x.trabajadorId===tw)){toast("Ese trabajador ya está en el equipo.");return}
-  if(conflictosEquipo(t,s,t.duracion,tw).length){toast("Ese horario ya está ocupado.");return}
-  if(fueraJornada(s,t.duracion)){toast("Ese horario está fuera de la jornada.");return}
-  // un cambio de hora mueve a todo el equipo; un cambio de trabajador solo afecta a esa persona
-  const mueve=s!==t.inicio,miembros=mueve?abiertosGrupo(t):[t];
-  for(const m of miembros){
-    const esT=m.id===t.id,camb=esT&&cambioTrab,w=esT?tw:m.trabajadorId,antes=parse(m.inicio);
-    const upd={inicio:s,historial:hist(m,!mueve&&camb?"Reasignada a "+(trab(w)?.nombre||""):`${antes?`Movida de ${fCorta(antes)} ${hhmm(antes)} a`:"Programada para"} ${fCorta(parse(s))} ${hhmm(parse(s))}${camb?" · reasignada a "+(trab(w)?.nombre||""):""}`)};
+  // un cambio de hora mueve a todo el equipo (y, si se pidió, los días siguientes de la obra); un cambio de trabajador solo afecta a esa persona
+  const moves=movimientos(t,s,obra?"obra":"dia",tw),ch=chequeoMov(moves);
+  if(ch.cf.length){toast("Ese horario ya está ocupado.");return}
+  if(ch.fuera){toast("Ese horario está fuera de la jornada.");return}
+  const mueve=s!==t.inicio;
+  // orden de guardado para que la obra no choque consigo misma: primero las que se atrasan (de la última hacia atrás)
+  const tarde=moves.filter(x=>x.s>(x.m.inicio||"")).sort((a,b)=>a.m.inicio<b.m.inicio?1:-1),resto=moves.filter(x=>!(x.s>(x.m.inicio||""))).sort((a,b)=>(a.m.inicio||"")<(b.m.inicio||"")?-1:1);
+  const avisados=new Set(),dias=[...new Set(moves.map(x=>x.s))].sort();
+  for(const mv of tarde.concat(resto)){
+    const m=mv.m,ss=mv.s,esT=m.id===t.id,camb=esT&&cambioTrab,w=mv.w,antes=parse(m.inicio);
+    if(!camb&&ss===m.inicio)continue;
+    const upd={inicio:ss,historial:hist(m,!mueve&&camb?"Reasignada a "+(trab(w)?.nombre||""):`${antes?`Movida de ${fCorta(antes)} ${hhmm(antes)} a`:"Programada para"} ${fCorta(parse(ss))} ${hhmm(parse(ss))}${camb?" · reasignada a "+(trab(w)?.nombre||""):""}`)};
     if(camb)upd.trabajadorId=w;
     if(m.estado==="por_confirmar"){upd.estado="programada";upd.opciones=[]}
     if(m.recordatorioEn)upd.recordatorioEn=null;   // con la nueva hora o persona, el recordatorio se vuelve a pedir
     try{await patch("tareas",m.id,upd)}catch(e){return}
-    await aviso(Object.assign({},m,upd),`${camb?"Le asignaron":"Cambio de hora"}: ${m.tipo} en ${casaTxt(casa(m.casaId))}, ahora ${fCorta(parse(s))} ${hhmm(parse(s))}`);
+    // en una obra, un solo aviso por trabajador con el rango nuevo
+    if(obra){if(!avisados.has(w)){avisados.add(w);await aviso(Object.assign({},m,upd),`Cambio de fechas: ${m.tipo} en ${casaTxt(casa(m.casaId))}, ahora del ${fCorta(parse(dias[0]))} al ${fCorta(parse(dias[dias.length-1]))}, ${hhmm(parse(s))}`)}continue}
+    await aviso(Object.assign({},m,upd),`${camb?"Le asignaron":"Cambio de hora"}: ${m.tipo} en ${casaTxt(casa(m.casaId))}, ahora ${fCorta(parse(ss))} ${hhmm(parse(ss))}`);
     if(camb)await aviso(Object.assign({},m),`Se le quitó: ${m.tipo} en ${casaTxt(casa(m.casaId))}`);
   }
-  toast(miembros.length>1?"Horario actualizado para todo el equipo. Avise también al propietario.":"Horario actualizado. Avise también al propietario.");
+  toast(obra?"Obra reprogramada. Avise también al propietario.":moves.length>1?"Horario actualizado para todo el equipo. Avise también al propietario.":"Horario actualizado. Avise también al propietario.");
   // si una visita ya agendada cambió de fecha, se arma el aviso de reprogramación con motivo
-  if(mueve&&iniAntes)openSheet({kind:"reprog",id,antes:iniAntes,motivo:""});
+  if(mueve&&iniAntes)openSheet({kind:"reprog",id,antes:iniAntes,motivo:"",obra});
   else openSheet({kind:"mensaje",id});
 }
 // ---------- cambiar trabajador ----------
@@ -1363,7 +1451,7 @@ async function guardarDur(id,m,nuevoInicio){
 }
 function sheetCancelar(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Cancelar");
-  return head("¿Cancelar esta tarea?",esc(casaTxt(casa(t.casaId)))+(t.inicio?" · "+fCorta(parse(t.inicio))+" "+hhmm(parse(t.inicio)):" · sin fecha"))+`<div class="stack"><div class="field"><label for="c-mot">Motivo (opcional)</label><input id="c-mot" class="in" placeholder="Ej. el propietario no estará"></div><p class="muted small" style="margin:0">${enEquipo(t)?`Se cancela para todo el equipo (${esc(equipoTxt(t))}) y se avisa a cada uno. Para sacar solo a una persona use «Cambiar trabajador».`:"El espacio se libera en el calendario y se avisa al trabajador."} Podrá reprogramarla después.</p><div class="row"><button class="btn btn-ghost" data-act="close" style="flex:1">Volver</button><button class="btn btn-dark" style="flex:1;background:var(--danger);color:#fff" data-act="confcancel" data-id="${t.id}">Cancelar tarea</button></div></div>`;
+  return head("¿Cancelar esta tarea?",esc(casaTxt(casa(t.casaId)))+(t.inicio?" · "+fCorta(parse(t.inicio))+" "+hhmm(parse(t.inicio)):" · sin fecha")+(enSerie(t)?" · "+diaTxt(t):""))+`<div class="stack">${alcanceHtml(t,s,"Cancelar")}<div class="field"><label for="c-mot">Motivo (opcional)</label><input id="c-mot" class="in" placeholder="Ej. el propietario no estará" value="${esc(s.cmot||"")}"></div><p class="muted small" style="margin:0">${enEquipo(t)?`Se cancela para todo el equipo (${esc(equipoTxt(t))}) y se avisa a cada uno. Para sacar solo a una persona use «Cambiar trabajador».`:"El espacio se libera en el calendario y se avisa al trabajador."} Podrá reprogramarla después.</p><div class="row"><button class="btn btn-ghost" data-act="close" style="flex:1">Volver</button><button class="btn btn-dark" style="flex:1;background:var(--danger);color:#fff" data-act="confcancel" data-id="${t.id}">Cancelar tarea</button></div></div>`;
 }
 function sheetReporte(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Avance");
@@ -1599,6 +1687,7 @@ function msgOwner(t){
     return `${saludo}\n\nVamos a atender su reporte en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• ${enEquipo(t)?"Técnicos: "+equipoTxt(t):"Técnico: "+(w?w.nombre:"por asignar")}\n• Duración aproximada: ${durTxt(t.duracion)}\n\nPor favor elija el día y la hora que mejor le convengan (${HORARIO_TXT}) en este enlace:\n${linkFor(t.id)}\n\nSi no puede abrirlo, respóndanos con el día y la hora que prefiera.`;
   }
   if(t.estado==="cancelada")return `${saludo}\n\nLe informamos que la visita${d?" programada para "+fLarga(d)+" a las "+hhmm(d):""} en ${casaTxt(c)} fue cancelada. Le contactaremos para reprogramarla.`;
+  if(enSerie(t))return `${saludo}\n\nLe confirmamos el trabajo de mantenimiento en ${casaTxt(c)}, que tomará ${diasDe(t).length} días:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• ${enEquipo(t)?"Técnicos: "+equipoTxt(t):"Técnico: "+(w?w.nombre:"")}\n\nFechas:\n${fechasSerieTxt(t)}\n\nDetalles de la visita:\n${linkFor(porDiaSerie(t)[0].id)}`;
   return `${saludo}\n\nLe confirmamos la visita de mantenimiento en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• ${enEquipo(t)?"Técnicos: "+equipoTxt(t):"Técnico: "+(w?w.nombre:"")}\n• Fecha: ${fLarga(d)}\n• Hora: ${hhmm(d)} a ${hhmm(finT(d,t.duracion))} (aprox. ${durTxt(t.duracion)})\n\nDetalles de la visita:\n${linkFor(t.id)}`;
 }
 // ---------- recordatorio al trabajador 1 hora antes ----------
@@ -1661,7 +1750,7 @@ function revisarRecordatorios(){
 }
 setInterval(revisarRecordatorios,30000);
 
-function msgWorker(t){const c=casa(t.casaId),d=parse(t.inicio);return `Hola ${trab(t.trabajadorId)?.nombre.split(" ")[0]||""}, se le asignó un trabajo:\n• ${t.tipo} en ${casaTxt(c)}\n• ${d?fLarga(d)+", "+hhmm(d):"Fecha por definir (la elige el propietario)"}\n• Tiempo estimado: ${durTxt(t.duracion)}${enEquipo(t)?"\n• En equipo con: "+companerosTxt(t):""}${t.descripcion?"\n• Detalle: "+t.descripcion:""}`}
+function msgWorker(t){const c=casa(t.casaId),d=parse(t.inicio);return `Hola ${trab(t.trabajadorId)?.nombre.split(" ")[0]||""}, se le asignó un trabajo${enSerie(t)?" de "+diasDe(t).length+" días":""}:\n• ${t.tipo} en ${casaTxt(c)}\n• ${enSerie(t)?"Fechas:\n"+fechasSerieTxt(t).replace(/^• /gm,"   – "):d?fLarga(d)+", "+hhmm(d):"Fecha por definir (la elige el propietario)"}\n• ${enSerie(t)?"Tiempo estimado por día":"Tiempo estimado"}:${durTxt(t.duracion)}${enEquipo(t)?"\n• En equipo con: "+companerosTxt(t):""}${t.descripcion?"\n• Detalle: "+t.descripcion:""}`}
 function wa(phone,text){const p=String(phone||"").replace(/\D/g,"");const num=p.length===8?"506"+p:p;return "https://wa.me/"+(num||"")+"?text="+encodeURIComponent(text)}
 function sheetMensaje(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Mensaje");
@@ -1682,7 +1771,7 @@ function msgReprog(t,s){
   const mot=String(s.motivo||"").trim();
   const saludo=`Hola${c&&c.propietario?" "+c.propietario.split(" ")[0]:""}, le saluda el equipo de Postventa de Ciudad del Valle.`;
   return `${saludo}\n\nLe informamos que la visita de ${t.tipo} en ${casaTxt(c)}${antes?", programada para el "+fLarga(antes).toLowerCase()+" a las "+hhmm(antes)+",":""} debe reprogramarse.\n\nMotivo: ${mot||"____________________"}\n\n`+
-    (sinFecha?`Le contactaremos para coordinar una nueva fecha.`:`Nueva fecha: ${fLarga(d)}, de ${hhmm(d)} a ${hhmm(finT(d,t.duracion))}\n\nDetalles de la visita:\n${linkFor(t.id)}`)+
+    (sinFecha?`Le contactaremos para coordinar una nueva fecha.`:(s.obra&&enSerie(t)?`Nuevas fechas del trabajo:\n${fechasSerieTxt(t)}`:`Nueva fecha: ${fLarga(d)}, de ${hhmm(d)} a ${hhmm(finT(d,t.duracion))}`)+`\n\nDetalles de la visita:\n${linkFor(t.id)}`)+
     `\n\nDisculpe las molestias y gracias por su comprensión.`;
 }
 function sheetReprog(s){
@@ -1781,16 +1870,26 @@ document.addEventListener("click",async e=>{
       // la jornada completa solo puede empezar a las 6 a. m.
       if(+el.dataset.m===JORNADA){const hi=document.getElementById("n-hora");if(hi){hi.value=pad(WORK0)+":00";syncClock("n-hora")}}
       checkNueva();break}
+    case "ndias":{el.parentNode.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===el));const n=el.dataset.m==="n";
+      document.getElementById("n-dias").hidden=!n;
+      // varios días: por defecto jornada completa y la fecha se asigna ahora (el propietario no escoge varios días)
+      const bp=document.querySelector('[data-act="nmodo"][data-m="prop"]'),bf=document.querySelector('[data-act="nmodo"][data-m="fija"]');
+      if(n){const j=document.querySelector(`#n-dur [data-m="${JORNADA}"]`);if(j){j.parentNode.querySelectorAll(".choice").forEach(b=>b.setAttribute("aria-pressed",b===j));const hi=document.getElementById("n-hora");if(hi){hi.value=pad(WORK0)+":00";syncClock("n-hora")}}
+        if(bp&&bp.getAttribute("aria-pressed")==="true")bf.click()}
+      if(bp){bp.disabled=n;bp.title=n?"Para trabajos de varios días, la fecha se asigna ahora":""}
+      checkNueva();break}
     case "nmodo":{el.parentNode.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b===el));const prop=el.dataset.m==="prop";document.getElementById("n-fija").hidden=prop;document.getElementById("n-prop").hidden=!prop;
       checkNueva();break}
     case "usarlibre":{const [f,h]=el.dataset.s.split("T");document.getElementById("n-fecha").value=f;document.getElementById("n-hora").value=h;checkNueva();break}
     case "usarlibreh":{const [f,h]=el.dataset.s.split("T");document.getElementById("h-fecha").value=f;document.getElementById("h-hora").value=h;checkHora();break}
-    case "aplicarhora":el.disabled=true;await aplicarHora(id,el.dataset.s);break;
-    case "guardarhora":{el.disabled=true;const s=document.getElementById("h-fecha").value+"T"+document.getElementById("h-hora").value;await aplicarHora(id,s,document.getElementById("h-trab").value);break}
+    case "aplicarhora":el.disabled=true;await aplicarHora(id,el.dataset.s,null,el.dataset.al);break;
+    case "guardarhora":{el.disabled=true;const s=document.getElementById("h-fecha").value+"T"+document.getElementById("h-hora").value;const t=S.tareas.find(x=>x.id===id);const al=t?alcanceDe(t,sheet):"dia";await aplicarHora(id,s,al==="obra"?null:document.getElementById("h-trab").value,al);break}
+    case "alcance":if(sheet){const hf=document.getElementById("h-fecha"),hh=document.getElementById("h-hora"),cm=document.getElementById("c-mot");if(hf)sheet.hf=hf.value;if(hh)sheet.hh=hh.value;if(cm)sheet.cmot=cm.value;sheet.alcance=el.dataset.m;openSheet(Object.assign(sheet,{_keep:true}))}break;
     case "confcancel":{const t=S.tareas.find(x=>x.id===id);if(!t)break;el.disabled=true;const mot=document.getElementById("c-mot").value.trim();
-      // se cancela para todo el equipo
+      // se cancela para todo el equipo (y, si se pidió, los días siguientes de la obra)
+      const lista=alcanceDe(t,sheet||{})==="obra"?serieDe(t).filter(x=>x.inicio&&x.inicio.slice(0,10)>=t.inicio.slice(0,10)&&(x.estado==="programada"||x.estado==="por_confirmar")):abiertosGrupo(t);
       let fallo=false;
-      for(const m of abiertosGrupo(t)){
+      for(const m of lista){
         try{await patch("tareas",m.id,{estado:"cancelada",motivo:mot,historial:hist(m,"Cancelada"+(mot?": "+mot:""))})}catch(er){fallo=true;break}
         await aviso(m,`Cancelado: ${m.tipo} en ${casaTxt(casa(m.casaId))} ${m.inicio?"("+fCorta(parse(m.inicio))+")":""}`);
       }
