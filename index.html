@@ -112,7 +112,10 @@ a.btn{text-decoration:none}
 .st-pendiente{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
 .st-cancelada{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,transparent);background:var(--danger-soft)}
 .soon{font-size:12.5px;font-weight:700;color:var(--lime-ink)}
-.soon.late{color:var(--danger)}
+.soon.cur{color:var(--ok)}
+.soon.cur::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:6px;vertical-align:1px;animation:pv-pulso 1.6s ease-in-out infinite}
+.soon.rep{color:var(--warn)}
+@keyframes pv-pulso{50%{opacity:.25}}
 
 .bars{display:grid;gap:10px}
 .bar-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:14px}
@@ -306,14 +309,15 @@ const TIPOS = [
   ["Cerrajería",45],["Retoque de pintura",180],["Cerámica o porcelanato",180],["Cielo raso / gypsum",120],
   ["Impermeabilización",240],["Calentador de agua",60],["Revisión general de garantía",120],["Otro",60]
 ];
-// Jornada completa = de 6 a. m. a 6 p. m. sin desayuno ni almuerzo = 10 h 30 min de trabajo
-const JORNADA = 630;
+// Jornada completa = de 6 a. m. a 6 p. m. sin el almuerzo = 11 h de trabajo
+const JORNADA = 660;
 const DUR = [30,45,60,90,120,180,240,300,360,420,480,540,600,JORNADA];
 const H0 = 6, H1 = 19, HH = 46;   // calendario 6:00–19:00
 const WORK0 = 6, WORK1 = 18, ULTIMA = 17;   // jornada lun–vie 6 a. m.–6 p. m.; último inicio 5 p. m.
-const HORARIO_TXT = "lunes a viernes, de 6 a. m. a 6 p. m. (último inicio a las 5 p. m.; no se trabaja en el desayuno de 9:00 a 9:30 a. m. ni en el almuerzo de 12 m. a 1 p. m.)";
-// descansos del equipo, en minutos del día: no cuentan como tiempo de trabajo
-const DESCANSOS = [[9*60, 9*60+30, "Desayuno"], [12*60, 13*60, "Almuerzo"]];
+const HORARIO_TXT = "lunes a viernes, de 6 a. m. a 6 p. m. (último inicio a las 5 p. m.; no se trabaja en el almuerzo, de 12 m. a 1 p. m.)";
+// descansos fijos del equipo, en minutos del día: no cuentan como tiempo de trabajo
+// (el desayuno no tiene hora fija, por eso no está aquí)
+const DESCANSOS = [[12*60, 13*60, "Almuerzo"]];
 const COLORS = ["#7FA600","#2F6FDB","#C2412D","#8E44AD","#D9822B","#138D75","#B03A7A","#5D6D7E"];
 const ESTADO = {programada:"Programada",por_confirmar:"Esperando propietario",finalizada:"Finalizada",pendiente:"Quedó pendiente",cancelada:"Cancelada"};
 const DIAS = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
@@ -349,7 +353,8 @@ function fCorta(d){return DIAS[d.getDay()]+" "+d.getDate()+" "+MESES[d.getMonth(
 function sameDay(a,b){return a&&b&&a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate()}
 function weekStart(d){const x=startOfDay(d);const w=(x.getDay()+6)%7;return addDays(x,-w)}
 function durTxt(m){if(m===JORNADA)return "Jornada completa";if(m<60)return m+" min";const h=Math.floor(m/60),r=m%60;return h+" h"+(r?" "+r+" min":"")}
-function rel(d){const diff=(d-new Date())/60000;if(diff<-5)return {t:"Atrasada",late:true};if(diff<60)return {t:"En "+Math.max(0,Math.round(diff))+" min"};if(diff<60*24&&sameDay(d,new Date()))return {t:"En "+Math.round(diff/60)+" h"};const days=Math.round((startOfDay(d)-startOfDay(new Date()))/864e5);if(days===1)return {t:"Mañana"};return {t:"En "+days+" días"}}
+function rel(d,fin){const now=new Date(),diff=(d-now)/60000;
+  if(diff<=0){if(!fin||now<fin)return {t:"En curso"+(fin?" · hasta "+hhmm(fin):""),cls:"cur"};return {t:"Falta registrar avance",cls:"rep"}}if(diff<60)return {t:"En "+Math.max(0,Math.round(diff))+" min"};if(diff<60*24&&sameDay(d,new Date()))return {t:"En "+Math.round(diff/60)+" h"};const days=Math.round((startOfDay(d)-startOfDay(new Date()))/864e5);if(days===1)return {t:"Mañana"};return {t:"En "+days+" días"}}
 
 // ---------- datos ----------
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -738,7 +743,7 @@ function viewInicio(){
 }
 
 function remCard(t){
-  const d=parse(t.inicio),c=casa(t.casaId),w=trab(t.trabajadorId);const r=rel(d);
+  const d=parse(t.inicio),c=casa(t.casaId),w=trab(t.trabajadorId);const r=rel(d,finT(d,t.duracion||60));
   return `<article class="rem">
     <div class="rem-top" data-act="det" data-id="${t.id}" style="cursor:pointer">
       <div class="timebox"><b>${hhmmShort(d)}</b><span>${d.getHours()<12?"a. m.":"p. m."}</span></div>
@@ -746,7 +751,7 @@ function remCard(t){
         <div class="row between" style="align-items:flex-start"><h3>${esc(casaTxt(c))}</h3><span class="pill st-${t.estado}">${ESTADO[t.estado]}</span></div>
         <div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div>
         <div class="meta"><span>${I.user}${esc(w?w.nombre:"Sin asignar")}</span><span>${I.clock}${durTxt(t.duracion)}</span><span>${fCorta(d)}</span></div>
-        <div class="soon ${r.late?"late":""}" style="margin-top:6px">${r.t}${t.estado==="por_confirmar"?" · horario tentativo":""}</div>
+        <div class="soon ${r.cls||""}" style="margin-top:6px">${r.t}${t.estado==="por_confirmar"?" · horario tentativo":""}</div>
       </div>
     </div>
     ${isAdmin()?`<div class="rem-actions">
@@ -913,7 +918,7 @@ function weekDays(off){const ws=addDays(weekStart(new Date()),7*off);return [0,1
 function slotsFor(t,day){
   const out=[];for(let h=WORK0;h<=ULTIMA;h++){
     let st=new Date(day.getFullYear(),day.getMonth(),day.getDate(),h,0);
-    // si la hora cae en un descanso, se ofrece al terminar el descanso (9:00 → 9:30)
+    // si la hora cae en un descanso, se ofrece al terminar el descanso (12:00 → 1:00 p. m.)
     if(enDescanso(st)){const dsc=DESCANSOS.find(([a,b])=>h*60>=a&&h*60<b);st=new Date(day.getFullYear(),day.getMonth(),day.getDate(),0,dsc[1]);if(st.getMinutes()===0)continue}
     const str=toStr(st);if(fueraJornada(str,t.duracion))continue;
     const past=st<addMin(new Date(),60);const fin=addMin(st,t.duracion);
@@ -1024,7 +1029,7 @@ function renderClock(){
       <div class="ck-ap"><button type="button" data-act="ckap" data-v="am" aria-pressed="${!pm}">a. m.</button><button type="button" data-act="ckap" data-v="pm" aria-pressed="${pm}">p. m.</button></div></div></div>
     <div class="ck-dial" id="ck-dial" tabindex="0" role="slider" aria-label="${CK.mode==="h"?"Hora":"Minutos"}; use las flechas y Enter">
       <svg class="ck-hand" viewBox="0 0 256 256" aria-hidden="true"><line id="ck-line" x1="${CKC}" y1="${CKC}" x2="${CKC}" y2="${CKC}"/><circle cx="${CKC}" cy="${CKC}" r="4"/><circle id="ck-knob" cx="${CKC}" cy="${CKC}" r="20"/></svg>${nums}</div>
-    <p class="muted small" style="margin-block:0;text-align:center">Toque o arrastre la aguja. Inicio de 6 a. m. a 5 p. m.; no se puede iniciar en el desayuno (9–9:30) ni en el almuerzo (12–1).</p>
+    <p class="muted small" style="margin-block:0;text-align:center">Toque o arrastre la aguja. Inicio de 6 a. m. a 5 p. m.; no se puede iniciar en el almuerzo (12 m. a 1 p. m.).</p>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost btn-sm" data-act="ckcancel">Cancelar</button><button type="button" class="btn btn-lime btn-sm" data-act="ckok">Aceptar</button></div>
   </div></div>`;
   updateDial();
