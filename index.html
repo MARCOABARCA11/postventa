@@ -194,6 +194,10 @@ textarea.in{min-height:84px;resize:vertical}
 .kv dd{margin:0;font-weight:600;min-width:0;overflow-wrap:anywhere}
 .photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
 .photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;border:1px solid var(--line);max-width:100%}
+.ph{position:relative}
+.ph-x{position:absolute;top:4px;right:4px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(17,17,17,.78);color:#fff;display:grid;place-items:center;cursor:pointer;padding:0}
+.ph-x svg{width:16px;height:16px}
+.rep-txt{white-space:pre-wrap;line-height:1.55}
 .msgbox{white-space:pre-wrap;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;font-size:14px;user-select:text}
 .opt{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px}
 .hist{border-left:2px solid var(--line);padding-left:12px;display:grid;gap:6px;font-size:13px}
@@ -324,7 +328,7 @@ const DIAS = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 
 // ---------- estado ----------
-const S = {casas:[],trab:[],tareas:[],avisos:[],config:{},loaded:{},offline:false,noDb:false};
+const S = {casas:[],trab:[],tareas:[],avisos:[],reportes:[],config:{},loaded:{},offline:false,noDb:false};
 let db=null, assets=null, user=null, canWrite=null, readOnly=false, sb=null;
 let modo = lsGet("modo") || "admin";
 let fecha = startOfDay(new Date());
@@ -462,7 +466,8 @@ const COLS={
   casas:["id","condominio","bloque","numero","propietario","telefono","fecha_entrega","demo","creado"],
   trabajadores:["id","nombre","telefono","especialidad","color","email","demo","creado"],
   tareas:["id","casa_id","trabajador_id","tipo","descripcion","duracion","inicio","estado","fotos","nota","motivo","historial","creada","reportado_en","recordatorio_en","grupo","demo"],
-  avisos:["id","trabajador_id","tarea_id","texto","creado","leido"],
+  avisos:["id","trabajador_id","tarea_id","reporte_id","texto","creado","leido"],
+  reportes:["id","titulo","texto","casa_id","trabajador_id","fotos","creado","actualizado","enviado_en","demo"],
   config:["id","telefono"]
 };
 const toSnake=k=>k.replace(/[A-Z]/g,c=>"_"+c.toLowerCase());
@@ -508,7 +513,7 @@ function supaDb(sb){
     doc:path=>{const [c,i]=path.split("/");return docRef(c,i)},
     exportar:()=>JSON.stringify({app:"postventa",version:1,exportado:new Date().toISOString(),datos:Object.fromEntries(Object.keys(COLS).map(c=>[c,Object.fromEntries((cache[c]||[]).map(r=>{const o=plain(r);delete o.token;return [r.id,o]}))]))},null,1),
     importar:async datos=>{
-      for(const col of ["casas","trabajadores","tareas","avisos","config"]){
+      for(const col of ["casas","trabajadores","tareas","reportes","avisos","config"]){
         const rows=Object.entries(datos[col]||{}).map(([id,o])=>Object.assign(toRow(col,o),{id}));
         for(let i=0;i<rows.length;i+=200){const {error}=await sb.from(col).upsert(rows.slice(i,i+200));if(error)throw supaErr(error)}
         if(rows.length)await fetchCol(col).catch(()=>{});
@@ -529,6 +534,7 @@ async function firmar(){
   const paths=[...signQ];signQ.clear();if(!paths.length||!sb)return;
   const {data}=await sb.storage.from("fotos").createSignedUrls(paths,6*3600);
   (data||[]).forEach(x=>{if(x.signedUrl)SIGNED[x.path]=x.signedUrl});
+  if(sheet&&sheet.kind==="repform")leerRepForm();
   if(sheet){const n=document.getElementById("r-nota");if(n)sheet.nota=n.value;openSheet(Object.assign(sheet,{_keep:true}))}
 }
 async function cargarPerfil(session){
@@ -601,6 +607,7 @@ async function init(){
   sub("trabajadores","trab",()=>S.trab.sort((a,b)=>(a.creado||"")<(b.creado||"")?-1:1));
   sub("tareas","tareas");
   sub("avisos","avisos",()=>S.avisos.sort((a,b)=>a.creado<b.creado?1:-1));
+  sub("reportes","reportes",()=>S.reportes.sort((a,b)=>(a.creado||"")<(b.creado||"")?1:-1));
   db.doc("config/general").onSnapshot(s=>{S.config=s.exists?s.data():{};render()},()=>{});
 }
 let seenAvisos=null;
@@ -639,7 +646,7 @@ async function aviso(tarea,texto){
 }
 
 // ---------- ruteo ----------
-function route(){const h=(location.hash||"").slice(1);if(h.startsWith("cita-"))return {v:"cita",id:h.slice(5)};return {v:["dia","semana","mes","casas","equipo"].includes(h)?h:"inicio"}}
+function route(){const h=(location.hash||"").slice(1);if(h.startsWith("cita-"))return {v:"cita",id:h.slice(5)};return {v:["dia","semana","mes","casas","equipo","reportes"].includes(h)?h:"inicio"}}
 window.addEventListener("hashchange",()=>{ddOpen=false;render();window.scrollTo(0,0)});
 function go(h){if(location.hash==="#"+h)render();else location.hash=h}
 
@@ -659,6 +666,7 @@ const I={
   bell:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21a2 2 0 0 0 4 0"/></svg>',
   x:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
   team:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.5c2.5 0 4.5 1.5 5.5 4.5"/></svg>',
+  doc:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
   link:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>'
 };
 
@@ -675,6 +683,7 @@ function render(){
   else if(r.v==="mes")h=viewMes();
   else if(r.v==="casas")h=viewCasas();
   else if(r.v==="equipo")h=viewEquipo();
+  else if(r.v==="reportes")h=viewReportes();
   app.innerHTML=h;
 }
 function banners(){
@@ -1005,6 +1014,8 @@ function openSheet(s){sheet=s;const L=document.getElementById("layer");let body=
   else if(s.kind==="duracion")body=sheetDuracion(s);
   else if(s.kind==="trab")body=sheetTrab(s);
   else if(s.kind==="delcasa")body=sheetDelCasa(s);
+  else if(s.kind==="repform")body=sheetRepForm(s);
+  else if(s.kind==="repver")body=sheetRepVer(s);
   else if(s.kind==="picker"){const t=S.tareas.find(x=>x.id===s.id);body=t?head("Horario elegido por el propietario",esc(casaTxt(casa(t.casaId))))+pickerHtml(t,s.P,"admin"):head("Tarea")}
   const keepScroll=L.querySelector(".sheet")?.scrollTop||0;
   L.innerHTML=`<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true">${`<div class="grab"></div>`+body}</div></div>`;
@@ -1363,7 +1374,8 @@ function sheetReporte(s){
 async function shrink(file){
   // reduce fotos grandes para ahorrar espacio
   try{
-    const bmp=await createImageBitmap(file);const max=S.local?1000:1600;   // en modo local las fotos ocupan espacio del navegadorconst sc=Math.min(1,max/Math.max(bmp.width,bmp.height));
+    const bmp=await createImageBitmap(file);const max=S.local?1000:1600;   // en modo local las fotos ocupan espacio del navegador
+    const sc=Math.min(1,max/Math.max(bmp.width,bmp.height));
     const cv=document.createElement("canvas");cv.width=Math.round(bmp.width*sc);cv.height=Math.round(bmp.height*sc);cv.getContext("2d").drawImage(bmp,0,0,cv.width,cv.height);
     return await new Promise(r=>cv.toBlob(b=>r(b||file),"image/jpeg",S.local?.72:.82));
   }catch(e){return file}
@@ -1387,6 +1399,188 @@ function blobUrl(f){
   if(f.path){if(SIGNED[f.path])return SIGNED[f.path];if(sb){signQ.add(f.path);clearTimeout(signT);signT=setTimeout(firmar,30)}return PIX}
   return f.id?"/_blob/"+f.id:f.url;
 }
+// ---------- reportes (texto + imágenes → PDF para un trabajador) ----------
+function misReportes(){return S.reportes.filter(r=>isAdmin()||r.trabajadorId===modo)}
+function fechaHora(iso){const d=new Date(iso);return isNaN(d)?"":fCorta(d)+" "+d.getFullYear()+" · "+hhmm(d)}
+function repVer(r){return r.actualizado||r.creado||""}
+function msgReporte(r){const w=trab(r.trabajadorId),c=casa(r.casaId);return `Hola${w?" "+w.nombre.split(" ")[0]:""}, le envío el reporte «${r.titulo}»${c?" ("+casaTxt(c)+")":""}. Va adjunto en PDF.`}
+function viewReportes(){
+  const list=misReportes();
+  let h=`<div class="wrap">${topbar(isAdmin()?"Reportes":"Mis reportes",isAdmin()?"Texto e imágenes en PDF para enviar a los trabajadores":"Reportes que le envió la administración",true)}`;
+  if(isAdmin()&&!readOnly&&db)h+=`<div class="section"><button class="btn btn-lime" data-act="repnuevo">${I.plus} Nuevo reporte</button></div>`;
+  h+=`<div class="section stack" style="gap:10px">`;
+  if(!list.length)h+=`<div class="card muted">${isAdmin()?"Aún no hay reportes. Toque «Nuevo reporte» para crear el primero.":"No tiene reportes."}</div>`;
+  list.forEach(r=>{const w=trab(r.trabajadorId),c=casa(r.casaId),n=(r.fotos||[]).length;
+    h+=`<button class="card row" data-act="repver" data-id="${r.id}" style="gap:14px;text-align:left;width:100%;cursor:pointer;font:inherit;color:inherit">
+      <span class="dd-ico" style="width:44px;height:44px;border-radius:12px;flex:none">${I.doc}</span>
+      <span style="flex:1;min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.titulo)}</b>
+      <span class="muted small" style="display:block">${fechaHora(r.creado)}${n?" · "+n+(n===1?" imagen":" imágenes"):""}</span>
+      <span class="small" style="display:block">${w?"Para "+esc(w.nombre):"Sin trabajador"}${c?" · "+esc(casaTxt(c)):""}</span></span>
+      ${isAdmin()?(r.enviadoEn?`<span class="small" style="color:var(--ok);font-weight:700;flex:none">Enviado</span>`:`<span class="small muted" style="flex:none">Sin enviar</span>`):""}
+    </button>`});
+  return h+`</div></div>`;
+}
+function leerRepForm(){
+  if(!sheet||sheet.kind!=="repform")return;const g=x=>document.getElementById(x);
+  if(g("rp-tit"))sheet.titulo=g("rp-tit").value;if(g("rp-txt"))sheet.texto=g("rp-txt").value;if(g("rp-trab"))sheet.trab=g("rp-trab").value;
+  const c=g("n-casa");if(c)sheet.casaId=c.value;
+}
+function sheetRepForm(s){
+  const fotos=s.fotos||[],files=s.files||[];
+  return head(s.id?"Editar reporte":"Nuevo reporte","Texto e imágenes; después se genera el PDF")+`<div class="stack">
+  <div class="field"><label for="rp-tit">Título</label><input id="rp-tit" class="in" maxlength="120" placeholder="Ej. Instrucciones para reparar filtración" value="${esc(s.titulo||"")}"></div>
+  <div class="field"><label for="rp-trab">Para el trabajador</label><select id="rp-trab" class="in"><option value="">Sin trabajador (solo PDF)</option>${trabOptions(s.trab||"")}</select></div>
+  <div class="field"><label for="n-condo">Casa <span class="muted small" style="font-weight:500">(opcional)</span></label>${casaPicker(s.casaId||"")}</div>
+  <div class="field"><label for="rp-txt">Texto del reporte</label><textarea id="rp-txt" class="in" style="min-height:160px" placeholder="Indicaciones, hallazgos, materiales, instrucciones…">${esc(s.texto||"")}</textarea></div>
+  <div class="field"><span class="lbl">Imágenes</span>
+    <label class="btn btn-ghost" for="rp-fotos" style="cursor:pointer;align-self:start">${I.plus} Agregar imágenes</label><input id="rp-fotos" type="file" accept="image/*" multiple hidden>
+    ${fotos.length+files.length?`<div class="photos">${fotos.map((f,i)=>`<div class="ph"><img src="${esc(blobUrl(f))}" alt="Imagen ${i+1}"><button type="button" class="ph-x" data-act="rpquitar" data-k="old" data-i="${i}" aria-label="Quitar imagen">${I.x}</button></div>`).join("")}${files.map((f,i)=>`<div class="ph"><img src="${f.prev}" alt="Imagen nueva ${i+1}"><button type="button" class="ph-x" data-act="rpquitar" data-k="new" data-i="${i}" aria-label="Quitar imagen">${I.x}</button></div>`).join("")}</div>`:`<p class="muted small" style="margin:0">Tome fotos con la cámara o escójalas de la galería (máximo 20).</p>`}</div>
+  <button class="btn btn-lime" id="rp-save" data-act="repguardar" style="min-height:54px">${s.id?"Guardar cambios":"Guardar reporte"}</button></div>`;
+}
+async function guardarReporte(){
+  leerRepForm();const s=sheet;if(!s||s.kind!=="repform")return;const btn=document.getElementById("rp-save");
+  const titulo=(s.titulo||"").trim(),texto=(s.texto||"").trim();
+  if(!titulo){toast("Escriba un título.");document.getElementById("rp-tit").focus();return}
+  if(!texto&&!s.fotos.length&&!s.files.length){toast("Agregue texto o imágenes.");return}
+  if(s.files.length&&!assets){toast("Este acceso no permite subir imágenes.");return}
+  btn.disabled=true;
+  const fotos=s.fotos.slice();let fallo=0;
+  for(let i=0;i<s.files.length;i++){btn.textContent=`Subiendo imágenes… ${i+1}/${s.files.length}`;
+    try{const blob=await shrink(s.files[i].file);const r=await assets.upload(blob);fotos.push(r.path?{path:r.path}:{id:r.id,url:r.url})}catch(e){fallo++}}
+  if(fallo)toast(fallo+(fallo===1?" imagen no se pudo subir.":" imágenes no se pudieron subir."));
+  btn.textContent="Guardando…";
+  const id=s.id||uid("r");const prev=S.reportes.find(x=>x.id===id);const trabajadorId=s.trab||null;
+  const data={titulo,texto,casaId:s.casaId||null,trabajadorId,fotos,...(prev?{actualizado:new Date().toISOString()}:{creado:new Date().toISOString()})};
+  try{if(prev)await patch("reportes",id,data);else await put("reportes",id,data)}catch(e){btn.disabled=false;btn.textContent=prev?"Guardar cambios":"Guardar reporte";return}
+  if(trabajadorId&&(!prev||prev.trabajadorId!==trabajadorId)){try{await put("avisos",uid("a"),{trabajadorId,reporteId:id,tareaId:null,texto:"Nuevo reporte: "+titulo,creado:new Date().toISOString(),leido:false})}catch(e){}}
+  s.files.forEach(f=>URL.revokeObjectURL(f.prev));
+  toast(prev?"Reporte actualizado.":"Reporte guardado.");
+  openSheet({kind:"repver",id});
+}
+function sheetRepVer(s){
+  const r=S.reportes.find(x=>x.id===s.id);if(!r)return head("Reporte")+`<p class="muted">Este reporte ya no existe.</p>`;
+  const w=trab(r.trabajadorId),c=casa(r.casaId),fotos=r.fotos||[];
+  const pdf=s.pdf&&s.pdf.rid===r.id&&s.pdf.ver===repVer(r)?s.pdf:null;
+  let compartir=false;if(pdf&&navigator.canShare){try{compartir=navigator.canShare({files:[pdf.file]})}catch(e){}}
+  let acc;
+  if(!pdf)acc=`<button class="btn btn-lime" data-act="reppdf" data-id="${r.id}" style="min-height:54px">Generar PDF</button>`;
+  else acc=`<div class="alert info" style="margin:0"><b>PDF listo</b> · ${esc(pdf.file.name)} · ${Math.max(1,Math.round(pdf.file.size/1024))} KB</div>
+    ${compartir?`<button class="btn btn-lime" data-act="repcompartir" data-id="${r.id}" style="min-height:54px">Enviar PDF por WhatsApp u otra app</button>`:""}
+    <div class="row wrapr"><a class="btn ${compartir?"btn-ghost":"btn-lime"}" href="${pdf.url}" download="${esc(pdf.file.name)}" data-act="repdescargado" data-id="${r.id}">Descargar PDF</a><a class="btn btn-ghost" href="${pdf.url}" target="_blank" rel="noopener">Ver PDF</a></div>
+    ${isAdmin()&&w&&w.telefono&&!compartir?`<a class="btn btn-ghost" href="${esc(wa(w.telefono,msgReporte(r)))}" target="_blank" rel="noopener" data-act="repdescargado" data-id="${r.id}">Abrir chat de WhatsApp con ${esc(w.nombre.split(" ")[0])}</a><p class="muted small" style="margin:0">En la computadora: descargue el PDF y adjúntelo en el chat (clip → Documento).</p>`:""}`;
+  return head(esc(r.titulo),fechaHora(r.creado))+`<div class="stack">
+    <div class="card stack" style="gap:6px"><div class="small"><span class="muted">Para:</span> <b>${w?esc(w.nombre):"Sin trabajador"}</b></div>${c?`<div class="small"><span class="muted">Casa:</span> <b>${esc(casaTxt(c))}</b></div>`:""}${isAdmin()?`<div class="small"><span class="muted">Estado:</span> ${r.enviadoEn?`<b style="color:var(--ok)">Enviado · ${fechaHora(r.enviadoEn)}</b>`:"Sin enviar"}</div>`:""}</div>
+    ${r.texto?`<div class="card rep-txt">${esc(r.texto)}</div>`:""}
+    ${fotos.length?`<div class="photos">${fotos.map((f,i)=>`<a href="${esc(blobUrl(f))}" target="_blank" rel="noopener"><img src="${esc(blobUrl(f))}" alt="Imagen ${i+1} del reporte"></a>`).join("")}</div>`:""}
+    ${acc}
+    ${isAdmin()&&!readOnly?`<div class="row wrapr"><button class="btn btn-ghost btn-sm" data-act="repeditar" data-id="${r.id}">Editar</button><button class="btn btn-danger btn-sm" data-act="repborrar" data-id="${r.id}">Eliminar</button></div>`:""}
+  </div>`;
+}
+async function marcarEnviado(id){
+  if(!isAdmin()||readOnly)return;
+  try{await patch("reportes",id,{enviadoEn:new Date().toISOString()})}catch(e){return}
+  if(sheet&&sheet.kind==="repver"&&sheet.id===id)openSheet(Object.assign(sheet,{_keep:true}));
+}
+async function compartirPdfReporte(id){
+  const r=S.reportes.find(x=>x.id===id);const pdf=sheet&&sheet.pdf;if(!r||!pdf)return;
+  try{await navigator.share({files:[pdf.file],title:r.titulo,text:msgReporte(r)})}
+  catch(e){if(!(e&&e.name==="AbortError"))toast("No se pudo compartir. Use «Descargar PDF».");return}
+  toast("Reporte enviado.");await marcarEnviado(id);
+}
+// generador de PDF: se carga solo cuando se necesita
+let JSPDF=null;
+function cargarJsPDF(){
+  if(window.jspdf)return Promise.resolve(window.jspdf.jsPDF);if(JSPDF)return JSPDF;
+  JSPDF=new Promise((res,rej)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s.onload=()=>window.jspdf?res(window.jspdf.jsPDF):rej(new Error("red"));s.onerror=()=>{JSPDF=null;s.remove();rej(new Error("red"))};document.head.appendChild(s)});
+  return JSPDF;
+}
+async function urlFoto(f){
+  if(f.path){if(!SIGNED[f.path]&&sb){const {data}=await sb.storage.from("fotos").createSignedUrl(f.path,3600);if(data&&data.signedUrl)SIGNED[f.path]=data.signedUrl}return SIGNED[f.path]}
+  return f.id?"/_blob/"+f.id:f.url;
+}
+async function imgParaPdf(f){
+  const u=await urlFoto(f);if(!u)throw new Error("sin enlace");
+  const bmp=await createImageBitmap(await (await fetch(u)).blob());
+  const sc=Math.min(1,1400/Math.max(bmp.width,bmp.height));
+  const cv=document.createElement("canvas");cv.width=Math.round(bmp.width*sc);cv.height=Math.round(bmp.height*sc);
+  const g=cv.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,cv.width,cv.height);g.drawImage(bmp,0,0,cv.width,cv.height);
+  return {data:cv.toDataURL("image/jpeg",.82),w:cv.width,h:cv.height};
+}
+// las fuentes estándar del PDF solo tienen caracteres latinos: se cambian comillas tipográficas, emojis, etc.
+function pdfTxt(s){return String(s??"").replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[–—]/g,"-").replace(/…/g,"...").replace(/[•●▪]/g,"-").replace(/\r/g,"").replace(/[^\n\x20-\x7E\xA0-\xFF]/g,"")}
+async function generarPdfReporte(id,btn){
+  const r=S.reportes.find(x=>x.id===id);if(!r)return;
+  const txtBtn=btn?btn.textContent:"";if(btn){btn.disabled=true;btn.textContent="Preparando PDF…"}
+  try{
+    const jsPDF=await cargarJsPDF();
+    const imgs=[];let fallo=0;const fs=r.fotos||[];
+    for(let i=0;i<fs.length;i++){if(btn)btn.textContent=`Preparando imágenes… ${i+1}/${fs.length}`;try{imgs.push(await imgParaPdf(fs[i]))}catch(e){fallo++}}
+    const doc=new jsPDF({unit:"mm",format:"letter"});
+    const W=215.9,H=279.4,M=16,CW=W-2*M,BOT=H-18;
+    const NEGRO=[17,17,17],LIMA=[181,211,15],GRIS=[110,110,104],LINEA=[226,226,220],TXT=[40,40,38];
+    const w=trab(r.trabajadorId),c=casa(r.casaId),fecha=new Date(r.actualizado||r.creado||Date.now());
+    const titulo=pdfTxt(r.titulo),fTxt=fLarga(fecha)+" de "+fecha.getFullYear();
+    let y=0;
+    const subtitulo=(t)=>{doc.setFont("helvetica","bold");doc.setFontSize(12);doc.setTextColor(...NEGRO);doc.text(t,M,y);doc.setFillColor(...LIMA);doc.rect(M,y+2,14,1.2,"F");y+=9};
+    const nuevaPag=()=>{doc.addPage();doc.setFillColor(...NEGRO);doc.rect(0,0,W,14,"F");doc.setFillColor(...LIMA);doc.rect(0,14,W,1.2,"F");
+      doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(...LIMA);doc.text("POSTVENTA · CIUDAD DEL VALLE",M,9);
+      doc.setFont("helvetica","normal");doc.setTextColor(255,255,255);doc.text(doc.splitTextToSize(titulo,CW-75)[0],W-M,9,{align:"right"});y=26};
+    // encabezado
+    doc.setFillColor(...NEGRO);doc.rect(0,0,W,38,"F");doc.setFillColor(...LIMA);doc.rect(0,38,W,1.6,"F");
+    doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(...LIMA);doc.text("POSTVENTA · CIUDAD DEL VALLE",M,12);
+    doc.setFont("helvetica","normal");doc.setTextColor(200,200,195);doc.text(pdfTxt(fTxt),W-M,12,{align:"right"});
+    doc.setFont("helvetica","bold");doc.setFontSize(18);doc.setTextColor(255,255,255);
+    const tl=doc.splitTextToSize(titulo,CW).slice(0,2);doc.text(tl,M,tl.length>1?23:27);
+    // datos
+    y=48;
+    const meta=[["Dirigido a",w?w.nombre+(w.especialidad?" · "+w.especialidad:""):"Equipo de postventa"]].concat(c?[["Casa",casaTxt(c)]]:[]).concat([["Fecha",fTxt+", "+hhmm(fecha)],["Preparado por","Administración de postventa"]]);
+    const mh=6+meta.length*7.5;
+    doc.setFillColor(244,244,240);doc.roundedRect(M,y,CW,mh,3,3,"F");
+    meta.forEach(([k,v],i)=>{const yy=y+9+i*7.5;doc.setFont("helvetica","normal");doc.setFontSize(8.5);doc.setTextColor(...GRIS);doc.text(pdfTxt(k).toUpperCase(),M+6,yy);
+      doc.setFont("helvetica","bold");doc.setFontSize(10.5);doc.setTextColor(...NEGRO);doc.text(doc.splitTextToSize(pdfTxt(v),CW-52)[0],M+46,yy)});
+    y+=mh+11;
+    // texto
+    if(r.texto&&r.texto.trim()){
+      subtitulo("Detalle");
+      const lh=5.6;doc.setFont("helvetica","normal");doc.setFontSize(11);
+      for(const ln of doc.splitTextToSize(pdfTxt(r.texto.trim()),CW)){
+        if(y+lh>BOT)nuevaPag();
+        doc.setFont("helvetica","normal");doc.setFontSize(11);doc.setTextColor(...TXT);doc.text(ln,M,y);y+=lh}
+      y+=7;
+    }
+    // imágenes, dos por fila
+    if(imgs.length){
+      const gap=6,colW=(CW-gap)/2,maxH=100;
+      const filaDe=i=>imgs.slice(i,i+2).map(im=>{const sc=Math.min(colW/im.w,maxH/im.h);return Object.assign({},im,{dw:im.w*sc,dh:im.h*sc})});
+      const altoFila=f=>Math.max(...f.map(x=>x.dh))+7;
+      if(y+8+altoFila(filaDe(0))>BOT)nuevaPag();   // el título no se queda solo al final de la página
+      subtitulo("Imágenes ("+imgs.length+")");y-=1;
+      for(let i=0;i<imgs.length;i+=2){
+        const fila=filaDe(i),rowH=altoFila(fila);
+        if(y+rowH>BOT)nuevaPag();
+        fila.forEach((f,j)=>{const x0=M+j*(colW+gap),x=x0+(colW-f.dw)/2;
+          doc.addImage(f.data,"JPEG",x,y,f.dw,f.dh,undefined,"FAST");doc.setDrawColor(...LINEA);doc.setLineWidth(.3);doc.rect(x,y,f.dw,f.dh);
+          doc.setFont("helvetica","normal");doc.setFontSize(8.5);doc.setTextColor(...GRIS);doc.text("Imagen "+(i+j+1),x0+colW/2,y+f.dh+4.5,{align:"center"})});
+        y+=rowH+4;
+      }
+    }
+    // pie de página
+    const n=doc.getNumberOfPages();
+    for(let p=1;p<=n;p++){doc.setPage(p);doc.setDrawColor(...LINEA);doc.setLineWidth(.3);doc.line(M,H-12,W-M,H-12);
+      doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(...GRIS);doc.text("Adelante · Postventa Ciudad del Valle",M,H-7);doc.text("Página "+p+" de "+n,W-M,H-7,{align:"right"})}
+    const nombre=("Reporte - "+titulo).replace(/[\\/:*?"<>|]+/g,"").replace(/\s+/g," ").trim().slice(0,70)+" - "+dkey(fecha)+".pdf";
+    const file=new File([doc.output("blob")],nombre,{type:"application/pdf"});
+    if(sheet&&sheet.pdf&&sheet.pdf.url)URL.revokeObjectURL(sheet.pdf.url);
+    const pdf={rid:r.id,ver:repVer(r),file,url:URL.createObjectURL(file)};
+    if(sheet&&sheet.kind==="repver"&&sheet.id===id){sheet.pdf=pdf;openSheet(Object.assign(sheet,{_keep:true}))}
+    toast(fallo?(fallo===1?"PDF listo, pero 1 imagen no se pudo incluir.":"PDF listo, pero "+fallo+" imágenes no se pudieron incluir."):"PDF listo.");
+  }catch(e){
+    toast(e&&e.message==="red"?"No se pudo cargar el generador de PDF. Revise la conexión a internet.":"No se pudo generar el PDF.");
+    if(btn&&btn.isConnected){btn.disabled=false;btn.textContent=txtBtn}
+  }
+}
+
 function linkFor(id){
   if(S.supa){
     const t=S.tareas.find(x=>x.id===id);if(!t||!t.token)return "(el enlace estará listo en unos segundos)";
@@ -1482,7 +1676,8 @@ function sheetDrawer(){
   <button class="drawer-item" data-act="go" data-h="dia">${I.day} Trabajos del día</button>
   <button class="drawer-item" data-act="go" data-h="semana">${I.week} Trabajos de la semana</button>
   <button class="drawer-item" data-act="go" data-h="mes">${I.month} Programados del mes</button>
-  ${isAdmin()?`<button class="drawer-item" data-act="go" data-h="cita-demo">${I.link} Ver página del propietario (ejemplo)</button><button class="drawer-item" data-act="go" data-h="casas">${I.home} Casas</button><button class="drawer-item" data-act="go" data-h="equipo">${I.team} Equipo</button>`:""}</div>
+  ${isAdmin()?`<button class="drawer-item" data-act="go" data-h="cita-demo">${I.link} Ver página del propietario (ejemplo)</button><button class="drawer-item" data-act="go" data-h="casas">${I.home} Casas</button><button class="drawer-item" data-act="go" data-h="equipo">${I.team} Equipo</button>`:""}
+  <button class="drawer-item" data-act="go" data-h="reportes">${I.doc} ${isAdmin()?"Reportes":"Mis reportes"}</button></div>
   ${S.rol==="trab"?"":`<div class="section stack"><span class="eyebrow">${S.supa?"Ver la app como":"Usar la app como"}</span><div class="choices"><button class="choice" data-act="modo" data-m="admin" aria-pressed="${modo==="admin"}">Administración</button>${S.trab.map(t=>`<button class="choice" data-act="modo" data-m="${t.id}" aria-pressed="${modo===t.id}">${esc(t.nombre)}</button>`).join("")}</div><p class="muted small" style="margin:0">${S.supa?"Vista previa de lo que ve cada trabajador. Ellos entran con su propio usuario y solo ven su agenda y sus avisos.":"Cada trabajador elige su nombre en su teléfono una vez; la app lo recuerda y le muestra solo su agenda y sus avisos."}</p></div>`}
   ${S.supa&&S.email?`<div class="section stack"><span class="eyebrow">Sesión</span><div class="row between wrapr"><span class="small">${esc(S.email)} · ${S.rol==="admin"?"Administración":"Trabajador"}</span><button class="btn btn-ghost btn-sm" data-act="logout">Cerrar sesión</button></div></div>`:""}
   ${isAdmin()&&!readOnly&&db?`<div class="section stack"><span class="eyebrow">Ajustes</span><div class="field"><label for="cfg-tel">Teléfono de coordinación (se muestra a propietarios)</label><div class="row"><input id="cfg-tel" class="in" value="${esc(S.config.telefono||"")}" inputmode="tel" placeholder="8888-8888"><button class="btn btn-dark btn-sm" data-act="savecfg">Guardar</button></div></div>
@@ -1492,7 +1687,7 @@ function sheetDrawer(){
 }
 function sheetAvisos(){
   const mine=S.avisos.filter(a=>a.trabajadorId===modo).slice(0,30);
-  return head("Avisos",esc(trab(modo)?.nombre||""))+(mine.length?`<div class="card" style="padding:4px 18px">${mine.map(a=>`<button class="list-item" style="width:100%;background:none;border-left:0;border-right:0;border-top:0;text-align:left" data-act="det" data-id="${a.tareaId}"><span style="width:8px;height:8px;border-radius:50%;flex:none;background:${a.leido?"transparent":"var(--danger)"}"></span><span style="flex:1;min-width:0">${esc(a.texto)}<br><span class="muted small">${fCorta(new Date(a.creado))} ${hhmm(new Date(a.creado))}</span></span></button>`).join("")}</div>`:`<p class="muted">No tiene avisos.</p>`);
+  return head("Avisos",esc(trab(modo)?.nombre||""))+(mine.length?`<div class="card" style="padding:4px 18px">${mine.map(a=>`<button class="list-item" style="width:100%;background:none;border-left:0;border-right:0;border-top:0;text-align:left" data-act="${a.reporteId?"repver":"det"}" data-id="${a.reporteId||a.tareaId}"><span style="width:8px;height:8px;border-radius:50%;flex:none;background:${a.leido?"transparent":"var(--danger)"}"></span><span style="flex:1;min-width:0">${esc(a.texto)}<br><span class="muted small">${fCorta(new Date(a.creado))} ${hhmm(new Date(a.creado))}</span></span></button>`).join("")}</div>`:`<p class="muted">No tiene avisos.</p>`);
 }
 function sheetEditTrab(s){const t=trab(s.id);if(!t)return head("Trabajador");return head("Editar trabajador",esc(t.nombre))+`<div class="stack">
   <div class="two"><div class="field"><label for="et-nom">Nombre completo</label><input id="et-nom" class="in" value="${esc(t.nombre)}"></div>
@@ -1554,6 +1749,15 @@ document.addEventListener("click",async e=>{
       toast("Tarea cancelada.");openSheet({kind:"mensaje",id});break}
     case "rest":sheet.est=el.dataset.e;sheet.nota=document.getElementById("r-nota").value;sheet.dirty=true;openSheet(Object.assign(sheet,{_keep:true}));break;
     case "guardarrep":await guardarRep(id);break;
+    case "repnuevo":openSheet({kind:"repform",fotos:[],files:[]});break;
+    case "repver":openSheet({kind:"repver",id});break;
+    case "repeditar":{const r=S.reportes.find(x=>x.id===id);if(r)openSheet({kind:"repform",id,titulo:r.titulo,texto:r.texto,casaId:r.casaId||"",trab:r.trabajadorId||"",fotos:(r.fotos||[]).slice(),files:[]});break}
+    case "rpquitar":{leerRepForm();const i=+el.dataset.i;if(el.dataset.k==="new")sheet.files.splice(i,1);else sheet.fotos.splice(i,1);sheet.dirty=true;openSheet(Object.assign(sheet,{_keep:true}));break}
+    case "repguardar":await guardarReporte();break;
+    case "repborrar":{const r=S.reportes.find(x=>x.id===id);if(!r||!confirm("¿Eliminar el reporte «"+r.titulo+"»? No se puede deshacer."))break;try{await del("reportes",id)}catch(er){break}closeSheet();toast("Reporte eliminado.");break}
+    case "reppdf":await generarPdfReporte(id,el);break;
+    case "repcompartir":await compartirPdfReporte(id);break;
+    case "repdescargado":marcarEnviado(id);break;
     case "confirmaropc":{const t=S.tareas.find(x=>x.id===id);const s=t.opciones[+el.dataset.i];if(conflictos(t.trabajadorId,s,t.duracion,id).length){toast("Esa opción ya está ocupada; elija otra o cambie la hora.");break}
       try{await patch("tareas",id,{inicio:s,estado:"programada",opciones:[],historial:hist(t,"El propietario eligió "+fCorta(parse(s))+" "+hhmm(parse(s)))})}catch(er){break}
       await aviso(t,`Confirmado: ${t.tipo} en ${casaTxt(casa(t.casaId))}, ${fCorta(parse(s))} ${hhmm(parse(s))}`);toast("Fecha confirmada.");openSheet({kind:"mensaje",id});break}
@@ -1629,6 +1833,7 @@ document.addEventListener("change",e=>{
   if(e.target.id==="h-fecha"||e.target.id==="h-hora"||e.target.id==="h-trab")checkHora();
   if(e.target.id==="cc-condo"){lastCondo=e.target.value;const keep=BLOQUES[lastCondo]&&!BLOQUES[lastCondo].includes(lastBloque)?"":lastBloque;document.getElementById("cc-bl-wrap").innerHTML=bloqueInput("cc-bloque",lastCondo,keep)}
   if(e.target.id==="imp-file"&&e.target.files[0]){restaurarRespaldo(e.target.files[0]);e.target.value=""}
+  if(e.target.id==="rp-fotos"&&sheet&&sheet.kind==="repform"){leerRepForm();const files=[...e.target.files].slice(0,20-(sheet.fotos.length+sheet.files.length));if(e.target.files.length>files.length)toast("Máximo 20 imágenes por reporte.");sheet.files=sheet.files.concat(files.map(f=>({file:f,prev:URL.createObjectURL(f)})));sheet.dirty=true;openSheet(Object.assign(sheet,{_keep:true}))}
   if(e.target.id==="r-fotos"){const files=[...e.target.files].slice(0,10);sheet.files=(sheet.files||[]).concat(files.map(f=>({file:f,prev:URL.createObjectURL(f)})));sheet.nota=document.getElementById("r-nota").value;sheet.dirty=true;openSheet(Object.assign(sheet,{_keep:true}))}
 });
 document.addEventListener("submit",e=>{if(e.target.id==="flogin"){e.preventDefault();login();return}if(e.target.id==="fnueva"){e.preventDefault();if(!document.getElementById("n-save").disabled)guardarNueva()}});
