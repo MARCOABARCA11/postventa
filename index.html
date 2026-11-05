@@ -1081,6 +1081,29 @@ document.addEventListener("pointerup",()=>{if(!ckDrag)return;ckDrag=false;if(CK&
 document.addEventListener("pointercancel",()=>{ckDrag=false});
 
 function casaOptions(sel){return CONDOS.map(cn=>{const cs=S.casas.filter(c=>c.condominio===cn);return cs.length?`<optgroup label="${cn}">${cs.map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${esc(cn)} · ${c.bloque?"Bloque "+esc(c.bloque)+" · ":""}Casa ${esc(c.numero)}</option>`).join("")}</optgroup>`:""}).join("")}
+/* Selector de casa en pasos: condominio → bloque → casa */
+let nCondo="",nBloque="";
+function ordNum(a,b){return String(a).localeCompare(String(b),"es",{numeric:true,sensitivity:"base"})}
+function bloquesDe(cn){return [...new Set(S.casas.filter(c=>c.condominio===cn).map(c=>c.bloque||""))].sort(ordNum)}
+function casaPasoHtml(cn,bl,sel){
+  if(!cn)return `<select id="n-casa" class="in" required disabled><option value="">Primero escoja el condominio</option></select>`;
+  const bls=bloquesDe(cn), conBloques=bls.some(Boolean);
+  if(conBloques&&bls.length===1)bl=bls[0];
+  const cs=S.casas.filter(c=>c.condominio===cn&&(!conBloques||(c.bloque||"")===bl)).sort((a,b)=>ordNum(a.numero,b.numero));
+  const casaSel=(conBloques&&!bl)
+    ?`<select id="n-casa" class="in" required disabled><option value="">Primero el bloque</option></select>`
+    :`<select id="n-casa" class="in" required aria-label="Casa"><option value="">Casa…</option>${cs.map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>Casa ${esc(c.numero)}</option>`).join("")}</select>`;
+  return conBloques
+    ?`<div class="two"><select id="n-bloque" class="in" aria-label="Bloque"><option value="">Bloque…</option>${bls.map(b=>`<option value="${esc(b)}" ${b===bl?"selected":""}>${b?"Bloque "+esc(b):"Sin bloque"}</option>`).join("")}</select>${casaSel}</div>`
+    :casaSel;
+}
+function casaPicker(sel){
+  const c0=casa(sel), condos=CONDOS.filter(cn=>S.casas.some(c=>c.condominio===cn));
+  const cn=c0?c0.condominio:(condos.includes(nCondo)?nCondo:(condos.length===1?condos[0]:""));
+  const bl=c0?(c0.bloque||""):(cn===nCondo?nBloque:"");
+  return `<div class="stack" style="gap:8px"><select id="n-condo" class="in" aria-label="Condominio"><option value="">Condominio…</option>${condos.map(c=>`<option ${c===cn?"selected":""}>${esc(c)}</option>`).join("")}</select>
+    <div id="n-casa-wrap">${casaPasoHtml(cn,bl,sel)}</div></div>`;
+}
 function trabOptions(sel){return S.trab.map(t=>`<option value="${t.id}" ${t.id===sel?"selected":""}>${esc(t.nombre)}${t.especialidad?" · "+esc(t.especialidad):""}</option>`).join("")}
 function extraTrabHtml(){return `<div class="row n-tw-row"><select class="in n-trab-x" aria-label="Otro trabajador"><option value="">Seleccione al otro trabajador…</option>${trabOptions("")}</select><button type="button" class="icon-btn light" data-act="rmtw" aria-label="Quitar este trabajador" style="width:44px;height:44px">${I.x}</button></div>`}
 function sheetNueva(s){
@@ -1089,7 +1112,7 @@ function sheetNueva(s){
   const [dd,tt]=def.split("T");
   if(!S.casas.length||!S.trab.length)return head("Nueva tarea")+`<div class="card empty"><p>Antes de asignar tareas registre al menos una casa y un trabajador.</p><div class="row wrapr" style="justify-content:center"><button class="btn btn-dark" data-act="go" data-h="casas">Ir a casas</button><button class="btn btn-ghost" data-act="go" data-h="equipo">Ir a equipo</button></div></div>`;
   return head("Nueva tarea","Se avisará al trabajador al guardarla")+`<form id="fnueva" class="stack" novalidate>
-    <div class="field"><label for="n-casa">Casa</label><select id="n-casa" class="in" required><option value="">Seleccione la casa…</option>${casaOptions(p.casaId)}</select></div>
+    <div class="field"><label for="n-condo">Casa</label>${casaPicker(p.casaId)}</div>
     <div class="field"><label for="n-trab">Trabajador asignado</label><select id="n-trab" class="in" required><option value="">Seleccione al trabajador…</option>${trabOptions(p.trabajadorId)}</select>
       <div id="n-trabs-extra" class="stack" style="gap:8px"></div>
       ${S.trab.length>1?`<button type="button" class="link small" data-act="addtw" style="justify-self:start">${I.plus} Agregar otro trabajador (trabajo en equipo)</button>`:""}</div>
@@ -1595,6 +1618,12 @@ document.addEventListener("input",e=>{
   if(e.target.id==="r-nota"&&sheet)sheet.dirty=true;
 });
 document.addEventListener("change",e=>{
+  if(e.target.id==="n-condo"||e.target.id==="n-bloque"){
+    if(e.target.id==="n-condo"){nCondo=e.target.value;nBloque=""}else nBloque=e.target.value;
+    const w=document.getElementById("n-casa-wrap");
+    if(w){w.innerHTML=casaPasoHtml(nCondo,nBloque,"");const nx=document.getElementById(nBloque||!document.getElementById("n-bloque")?"n-casa":"n-bloque");if(nx&&!nx.disabled&&!esMovil())nx.focus()}
+  }
+  if(e.target.id==="n-casa"){const c=casa(e.target.value);if(c){nCondo=c.condominio;nBloque=c.bloque||""}}
   if(e.target.closest("#fnueva"))checkNueva();
   if(e.target.id==="n-tipo"){const d=+e.target.selectedOptions[0].dataset.d;const b=document.querySelector(`#n-dur [data-m="${d}"]`);if(b){b.parentNode.querySelectorAll(".choice").forEach(x=>x.setAttribute("aria-pressed",x===b));checkNueva()}}
   if(e.target.id==="h-fecha"||e.target.id==="h-hora"||e.target.id==="h-trab")checkHora();
