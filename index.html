@@ -383,8 +383,8 @@ try{const mq=matchMedia("(max-width:640px)");const onMq=()=>{if(!sheet&&!CK&&!S.
   if(mq.addEventListener)mq.addEventListener("change",onMq);else if(mq.addListener)mq.addListener(onMq)}catch(e){}
 
 function conflictos(tid,inicioStr,dur,excludeId){
-  const a=parse(inicioStr), b=finT(a,dur);
-  return S.tareas.filter(t=>t.id!==excludeId&&t.inicio&&t.trabajadorId===tid&&(t.estado==="programada"||t.estado==="por_confirmar")).filter(t=>{
+  const a=parse(inicioStr), b=finT(a,dur);const ex=[].concat(excludeId==null?[]:excludeId);
+  return S.tareas.filter(t=>!ex.includes(t.id)&&t.inicio&&t.trabajadorId===tid&&(t.estado==="programada"||t.estado==="por_confirmar")).filter(t=>{
     const s=parse(t.inicio), e=finT(s,t.duracion||60);return s<b&&e>a});
 }
 function fueraJornada(inicioStr,dur){const a=parse(inicioStr),b=finT(a,dur);const ha=a.getHours()+a.getMinutes()/60,hb=b.getHours()+b.getMinutes()/60;return a.getDay()===0||a.getDay()===6||ha<WORK0||ha>ULTIMA||enDescanso(a)||!sameDay(a,b)||hb>WORK1}
@@ -392,11 +392,24 @@ function proximoLibre(tid,desde,dur,excludeId){
   let d=new Date(desde);d.setSeconds(0,0);const m=d.getMinutes();if(m%30)d=addMin(d,30-m%30);
   for(let i=0;i<60*24;i++){
     const s=toStr(d);
-    if(!fueraJornada(s,dur)&&!conflictos(tid,s,dur,excludeId).length&&d>new Date())return s;
+    // tid puede ser un trabajador o una lista (equipo): todos deben estar libres
+    if(!fueraJornada(s,dur)&&[].concat(tid).every(w=>!conflictos(w,s,dur,excludeId).length)&&d>new Date())return s;
     d=addMin(d,30);
   }
   return null;
 }
+// ---------- trabajo en equipo: varias tareas enlazadas por "grupo", una por trabajador ----------
+function grupoDe(t){if(!t)return [];if(!t.grupo)return [t];return S.tareas.filter(x=>x.grupo===t.grupo&&(x.id===t.id||x.estado!=="cancelada"))}
+function abiertosGrupo(t){return grupoDe(t).filter(x=>x.id===t.id||x.estado==="programada"||x.estado==="por_confirmar")}
+function enEquipo(t){return grupoDe(t).length>1}
+function listaY(n){return n.length<2?(n[0]||""):n.slice(0,-1).join(", ")+" y "+n[n.length-1]}
+function equipoTxt(t){const n=grupoDe(t).map(x=>trab(x.trabajadorId)?.nombre).filter(Boolean);return n.length?listaY(n):"Sin asignar"}
+function companerosTxt(t){return listaY(grupoDe(t).filter(x=>x.id!==t.id).map(x=>trab(x.trabajadorId)?.nombre).filter(Boolean))}
+// una sola tarjeta por equipo en las listas de administración
+function unicos(list){const seen=new Set();return list.filter(t=>{if(!t.grupo)return true;if(seen.has(t.grupo))return false;seen.add(t.grupo);return true})}
+// choques de todo el equipo a esa hora (tw = trabajador nuevo para la tarea t, si se reasigna)
+function conflictosEquipo(t,s,dur,tw){const ms=abiertosGrupo(t),ex=ms.map(x=>x.id);return ms.map(m=>m.id===t.id?(tw||m.trabajadorId):m.trabajadorId).flatMap(w=>conflictos(w,s,dur,ex))}
+function trabEquipo(t,tw){return abiertosGrupo(t).map(m=>m.id===t.id?(tw||m.trabajadorId):m.trabajadorId)}
 function conflictMsg(list){return list.map(t=>{const s=parse(t.inicio);return `${esc(casaTxt(casa(t.casaId)))} (${hhmm(s)}–${hhmm(finT(s,t.duracion))})`}).join(", ")}
 
 // ---------- modo local (HTML abierto fuera de claude.ai): guarda en este navegador ----------
@@ -448,7 +461,7 @@ async function restaurarRespaldo(file){
 const COLS={
   casas:["id","condominio","bloque","numero","propietario","telefono","fecha_entrega","demo","creado"],
   trabajadores:["id","nombre","telefono","especialidad","color","email","demo","creado"],
-  tareas:["id","casa_id","trabajador_id","tipo","descripcion","duracion","inicio","estado","fotos","nota","motivo","historial","creada","reportado_en","recordatorio_en","demo"],
+  tareas:["id","casa_id","trabajador_id","tipo","descripcion","duracion","inicio","estado","fotos","nota","motivo","historial","creada","reportado_en","recordatorio_en","grupo","demo"],
   avisos:["id","trabajador_id","tarea_id","texto","creado","leido"],
   config:["id","telefono"]
 };
@@ -688,11 +701,12 @@ function topbar(title,sub,back){
 function viewInicio(){
   const list=activas(vis());
   const hoy=startOfDay(new Date());
-  const nHoy=enRango(list,hoy,addDays(hoy,1)).length;
-  const ws=weekStart(hoy);const nSem=enRango(list,ws,addDays(ws,7)).length;
-  const ms=new Date(hoy.getFullYear(),hoy.getMonth(),1);const nMes=enRango(list,ms,new Date(hoy.getFullYear(),hoy.getMonth()+1,1)).length;
+  // un trabajo en equipo cuenta y se muestra una sola vez
+  const nHoy=unicos(enRango(list,hoy,addDays(hoy,1))).length;
+  const ws=weekStart(hoy);const nSem=unicos(enRango(list,ws,addDays(ws,7))).length;
+  const ms=new Date(hoy.getFullYear(),hoy.getMonth(),1);const nMes=unicos(enRango(list,ms,new Date(hoy.getFullYear(),hoy.getMonth()+1,1))).length;
   const t=modo!=="admin"?trab(modo):null;
-  const proximas=list.filter(x=>(x.estado==="programada"||x.estado==="por_confirmar")&&x.inicio&&finT(parse(x.inicio),x.duracion||60)>addMin(new Date(),-240)).sort((a,b)=>a.inicio<b.inicio?-1:1).slice(0,6);
+  const proximas=unicos(list.filter(x=>(x.estado==="programada"||x.estado==="por_confirmar")&&x.inicio&&finT(parse(x.inicio),x.duracion||60)>addMin(new Date(),-240)).sort((a,b)=>a.inicio<b.inicio?-1:1)).slice(0,6);
   const ready=S.loaded.tareas||S.noDb||S.offline;
   const needSetup=ready&&isAdmin()&&(!S.casas.length||!S.trab.length);
   let h=`<div class="wrap">${topbar("","",false)}
@@ -723,8 +737,8 @@ function viewInicio(){
   h+=`</div>`;
 
   // esperando propietario
-  const esperando=list.filter(x=>x.estado==="por_confirmar"&&!x.inicio).sort((a,b)=>(a.creada||"")<(b.creada||"")?-1:1);
-  if(esperando.length){h+=`<div class="section"><div class="section-head"><h2>Esperando al propietario</h2><span class="muted small num">${esperando.length}</span></div><div class="rem-list">${esperando.map(t=>{const c=casa(t.casaId),w=trab(t.trabajadorId);return `<article class="rem"><div class="rem-top" data-act="det" data-id="${t.id}" style="cursor:pointer"><div class="timebox" style="background:var(--warn-soft);color:var(--warn)"><b>?</b><span>Fecha</span></div><div class="rem-main"><h3>${esc(casaTxt(c))}</h3><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${I.user}${esc(w?w.nombre:"")}</span><span>${I.clock}${durTxt(t.duracion)}</span></div></div></div>${isAdmin()?`<div class="rem-actions"><button class="btn btn-dark btn-sm" data-act="mensaje" data-id="${t.id}">${I.link} Enviar enlace</button><button class="btn btn-ghost btn-sm" data-act="picker" data-id="${t.id}">Anotar su elección</button><button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-ghost btn-sm" data-act="cambtrab" data-id="${t.id}">Cambiar trabajador</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`:""}</article>`}).join("")}</div></div>`}
+  const esperando=unicos(list.filter(x=>x.estado==="por_confirmar"&&!x.inicio).sort((a,b)=>(a.creada||"")<(b.creada||"")?-1:1));
+  if(esperando.length){h+=`<div class="section"><div class="section-head"><h2>Esperando al propietario</h2><span class="muted small num">${esperando.length}</span></div><div class="rem-list">${esperando.map(t=>{const c=casa(t.casaId),w=trab(t.trabajadorId);return `<article class="rem"><div class="rem-top" data-act="det" data-id="${t.id}" style="cursor:pointer"><div class="timebox" style="background:var(--warn-soft);color:var(--warn)"><b>?</b><span>Fecha</span></div><div class="rem-main"><h3>${esc(casaTxt(c))}</h3><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${enEquipo(t)?I.team:I.user}${esc(equipoTxt(t))}</span><span>${I.clock}${durTxt(t.duracion)}</span></div></div></div>${isAdmin()?`<div class="rem-actions"><button class="btn btn-dark btn-sm" data-act="mensaje" data-id="${t.id}">${I.link} Enviar enlace</button><button class="btn btn-ghost btn-sm" data-act="picker" data-id="${t.id}">Anotar su elección</button><button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-ghost btn-sm" data-act="cambtrab" data-id="${t.id}">Cambiar trabajador</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`:""}</article>`}).join("")}</div></div>`}
 
   // pendientes
   const pend=list.filter(x=>x.estado==="pendiente").sort((a,b)=>a.inicio<b.inicio?1:-1).slice(0,5);
@@ -732,7 +746,7 @@ function viewInicio(){
 
   // más repetidos
   if(isAdmin()){
-    const cnt={};activas(S.tareas).forEach(x=>{cnt[x.tipo]=(cnt[x.tipo]||0)+1});
+    const cnt={};unicos(activas(S.tareas)).forEach(x=>{cnt[x.tipo]=(cnt[x.tipo]||0)+1});
     const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,5);
     if(top.length){const max=top[0][1];
       h+=`<div class="section"><div class="section-head"><h2>Trabajos que más se repiten</h2><span class="muted small">Todas las fechas</span></div><div class="card bars">${top.map(([n,v])=>`<div class="bar-row"><span>${esc(n)}</span><b class="num">${v}</b><div class="bar"><i style="width:${Math.round(v/max*100)}%"></i></div></div>`).join("")}<p class="muted small" style="margin:4px 0 0">Úselo para detectar fallas recurrentes del proceso constructivo.</p></div></div>`}
@@ -750,12 +764,12 @@ function remCard(t){
       <div class="rem-main">
         <div class="row between" style="align-items:flex-start"><h3>${esc(casaTxt(c))}</h3><span class="pill st-${t.estado}">${ESTADO[t.estado]}</span></div>
         <div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div>
-        <div class="meta"><span>${I.user}${esc(w?w.nombre:"Sin asignar")}</span><span>${I.clock}${durTxt(t.duracion)}</span><span>${fCorta(d)}</span></div>
+        <div class="meta"><span>${enEquipo(t)?I.team:I.user}${esc(equipoTxt(t))}</span><span>${I.clock}${durTxt(t.duracion)}</span><span>${fCorta(d)}</span></div>
         <div class="soon ${r.cls||""}" style="margin-top:6px">${r.t}${t.estado==="por_confirmar"?" · horario tentativo":""}</div>
       </div>
     </div>
     ${isAdmin()?`<div class="rem-actions">
-      ${recBtn(t,"btn-rec")}
+      ${enEquipo(t)?abiertosGrupo(t).map(m=>recBtn(m,"btn-rec","Recordatorio a "+(trab(m.trabajadorId)?.nombre.split(" ")[0]||""))).join(""):recBtn(t,"btn-rec")}
       <button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button>
       <button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>
       <button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button>
@@ -802,9 +816,9 @@ function legend(list){
 }
 function listDay(items){
   if(!items.length)return `<div class="card empty daylist"><h3>Sin trabajos este día</h3><p>${isAdmin()?"Use Nueva tarea para programar uno.":"No tiene visitas programadas."}</p></div>`;
-  return `<div class="daylist rem-list">${items.map(remCardLite).join("")}</div>`;
+  return `<div class="daylist rem-list">${unicos(items).map(remCardLite).join("")}</div>`;
 }
-function remCardLite(t){const d=parse(t.inicio),c=casa(t.casaId);return `<button class="rem" style="text-align:left;width:100%" data-act="det" data-id="${t.id}"><div class="rem-top"><div class="timebox"><b>${hhmmShort(d)}</b><span>${d.getHours()<12?"a. m.":"p. m."}</span></div><div class="rem-main"><div class="row between" style="align-items:flex-start"><h3>${esc(casaTxt(c))}</h3><span class="pill st-${t.estado}">${ESTADO[t.estado]}</span></div><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${I.user}${esc(trab(t.trabajadorId)?.nombre||"")}</span><span>${I.clock}${durTxt(t.duracion)} · hasta ${hhmm(finT(d,t.duracion))}</span></div></div></div></button>`}
+function remCardLite(t){const d=parse(t.inicio),c=casa(t.casaId);return `<button class="rem" style="text-align:left;width:100%" data-act="det" data-id="${t.id}"><div class="rem-top"><div class="timebox"><b>${hhmmShort(d)}</b><span>${d.getHours()<12?"a. m.":"p. m."}</span></div><div class="rem-main"><div class="row between" style="align-items:flex-start"><h3>${esc(casaTxt(c))}</h3><span class="pill st-${t.estado}">${ESTADO[t.estado]}</span></div><div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${enEquipo(t)?I.team:I.user}${esc(equipoTxt(t))}</span><span>${I.clock}${durTxt(t.duracion)} · hasta ${hhmm(finT(d,t.duracion))}</span></div></div></div></button>`}
 
 function viewDia(){
   const a=startOfDay(fecha),b=addDays(a,1);const items=enRango(vis(),a,b);
@@ -813,7 +827,7 @@ function viewDia(){
     const ids=S.trab.map(t=>t.id);
     cols=ids.map(id=>({head:`<span class="row" style="justify-content:center;gap:6px"><span class="avatar" style="background:${color(id)};width:22px;height:22px;font-size:10px">${esc(initials(trab(id).nombre))}</span>${esc(trab(id).nombre.split(" ")[0])}</span>`,items:items.filter(t=>t.trabajadorId===id),today:false,off:a.getDay()===0}));
   } else cols=[{head:fCorta(a),items,today:sameDay(a,new Date())}];
-  return `<div class="wrap wide">${topbar("","",true)}${calHeader(fLarga(a),items.filter(t=>t.estado!=="cancelada").length+" trabajos · "+(isAdmin()?"por trabajador":"su agenda"),1)}${timeGrid(cols,isAdmin()?(esMovil()?128:150):(esMovil()?200:220))}${legend(items)}<div class="section-head section"><h2>Lista del día</h2></div>${listDay(items)}</div>`;
+  return `<div class="wrap wide">${topbar("","",true)}${calHeader(fLarga(a),unicos(items.filter(t=>t.estado!=="cancelada")).length+" trabajos · "+(isAdmin()?"por trabajador":"su agenda"),1)}${timeGrid(cols,isAdmin()?(esMovil()?128:150):(esMovil()?200:220))}${legend(items)}<div class="section-head section"><h2>Lista del día</h2></div>${listDay(items)}</div>`;
 }
 function viewSemana(){
   const ws=weekStart(fecha);const items=enRango(vis(),ws,addDays(ws,7));
@@ -823,13 +837,13 @@ function viewSemana(){
     // en el celular la semana se muestra como agenda por día (sin deslizar de lado)
     let body="";
     for(const c of cols){
-      const d=c.d,its=c.items,n=its.filter(t=>t.estado!=="cancelada").length;
+      const d=c.d,its=unicos(c.items),n=its.filter(t=>t.estado!=="cancelada").length;
       if(!its.length&&(d.getDay()===0||d.getDay()===6))continue;
       body+=`<div class="wk-day ${c.today?"today":""}"><button class="wk-head" data-act="mday" data-d="${dkey(d)}" aria-label="Ver ${fLarga(d)}"><span class="wk-dn">${["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"][d.getDay()]}</span><b>${d.getDate()}</b><span class="muted small">${MESES[d.getMonth()]}</span><span class="muted small num" style="margin-left:auto">${n?n+(n===1?" trabajo":" trabajos"):""}</span>${I.next}</button>${its.length?`<div class="rem-list">${its.map(remCardLite).join("")}</div>`:`<div class="wk-free">Sin trabajos programados.</div>`}</div>`;
     }
-    return `<div class="wrap">${topbar("","",true)}${calHeader("Semana del "+ws.getDate()+(ws.getMonth()!==we.getMonth()?" de "+MESES[ws.getMonth()]:"")+" al "+we.getDate()+" de "+MESES[we.getMonth()],items.filter(t=>t.estado!=="cancelada").length+" trabajos programados",7)}<div class="wk-list">${body}</div></div>`;
+    return `<div class="wrap">${topbar("","",true)}${calHeader("Semana del "+ws.getDate()+(ws.getMonth()!==we.getMonth()?" de "+MESES[ws.getMonth()]:"")+" al "+we.getDate()+" de "+MESES[we.getMonth()],unicos(items.filter(t=>t.estado!=="cancelada")).length+" trabajos programados",7)}<div class="wk-list">${body}</div></div>`;
   }
-  return `<div class="wrap wide">${topbar("","",true)}${calHeader("Semana del "+ws.getDate()+(ws.getMonth()!==we.getMonth()?" de "+MESES[ws.getMonth()]:"")+" al "+we.getDate()+" de "+MESES[we.getMonth()],items.filter(t=>t.estado!=="cancelada").length+" trabajos programados",7)}${timeGrid(cols,118)}${legend(items)}</div>`;
+  return `<div class="wrap wide">${topbar("","",true)}${calHeader("Semana del "+ws.getDate()+(ws.getMonth()!==we.getMonth()?" de "+MESES[ws.getMonth()]:"")+" al "+we.getDate()+" de "+MESES[we.getMonth()],unicos(items.filter(t=>t.estado!=="cancelada")).length+" trabajos programados",7)}${timeGrid(cols,118)}${legend(items)}</div>`;
 }
 function viewMes(){
   const m0=new Date(fecha.getFullYear(),fecha.getMonth(),1);const m1=new Date(fecha.getFullYear(),fecha.getMonth()+1,1);
@@ -837,13 +851,13 @@ function viewMes(){
   let cells="";
   for(let i=0;i<42;i++){
     const d=addDays(start,i);if(i>=35&&d>=m1)break;
-    const di=items.filter(t=>sameDay(parse(t.inicio),d)&&t.estado!=="cancelada");
+    const dAll=items.filter(t=>sameDay(parse(t.inicio),d)&&t.estado!=="cancelada"),di=unicos(dAll);
     cells+=`<button class="mday ${d.getMonth()!==m0.getMonth()?"other":""} ${sameDay(d,new Date())?"today":""}" data-act="mday" data-d="${dkey(d)}" aria-label="${fLarga(d)}, ${di.length} trabajos"><span class="dn">${d.getDate()}</span>
       ${di.slice(0,3).map(t=>{const c=casa(t.casaId);return `<span class="chip" style="${evStyle(t.trabajadorId)}${t.estado==="por_confirmar"?";border-style:dashed":""}">${hhmmShort(parse(t.inicio))} ${esc(c?c.condominio.replace("Valle ","")+" "+c.numero:"")}</span>`}).join("")}
       ${di.length>3?`<span class="more">+${di.length-3} más</span>`:""}
-      <span class="dots">${di.slice(0,6).map(t=>`<i style="background:${color(t.trabajadorId)}"></i>`).join("")}</span></button>`;
+      <span class="dots">${dAll.slice(0,6).map(t=>`<i style="background:${color(t.trabajadorId)}"></i>`).join("")}</span></button>`;
   }
-  const n=items.filter(t=>parse(t.inicio)>=m0&&parse(t.inicio)<m1&&t.estado!=="cancelada").length;
+  const n=unicos(items.filter(t=>parse(t.inicio)>=m0&&parse(t.inicio)<m1&&t.estado!=="cancelada")).length;
   return `<div class="wrap wide">${topbar("","",true)}${calHeader(MESES[m0.getMonth()].replace(/^./,c=>c.toUpperCase())+" "+m0.getFullYear(),n+" trabajos programados · toque un día para verlo",0)}
   <div class="month">${["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"].map(x=>`<div class="dow">${x}</div>`).join("")}${cells}</div>${legend(items)}</div>`;
 }
@@ -902,9 +916,9 @@ function viewCita(id){
     h+=`<div class="card section empty">${S.noDb?`<h2>Inicie sesión para ver su visita</h2><p>Este enlace muestra los detalles de la visita. Si no puede abrirlo, el mensaje que recibió por WhatsApp contiene la misma información; puede responder ahí con el día y la hora que prefiera.</p>`:!buscando?`<h2>No encontramos esta visita</h2><p>Puede que haya sido cancelada o reprogramada. Comuníquese con el equipo de postventa${tel?" al "+esc(tel):""}.</p>`:`<p>Cargando la información de su visita…</p>`}</div></div>`;
     return h;
   }
-  const c=esDemo?{condominio:"Valle Novarum",bloque:"C",numero:"14"}:t._casa!==undefined?t._casa:casa(t.casaId),w=esDemo?{nombre:"Carlos Mora"}:t._tecnico!==undefined?(t._tecnico?{nombre:t._tecnico}:null):trab(t.trabajadorId),d=parse(t.inicio);const elegir=t.estado==="por_confirmar"&&!d;
+  const c=esDemo?{condominio:"Valle Novarum",bloque:"C",numero:"14"}:t._casa!==undefined?t._casa:casa(t.casaId),w=esDemo?{nombre:"Carlos Mora"}:t._tecnico!==undefined?(t._tecnico?{nombre:t._tecnico}:null):enEquipo(t)?{nombre:equipoTxt(t)}:trab(t.trabajadorId),d=parse(t.inicio);const elegir=t.estado==="por_confirmar"&&!d;
   h+=`<div class="section"><span class="pill st-${t.estado}">${elegir?"Falta elegir fecha":ESTADO[t.estado]}</span><h1 style="margin-top:10px">${elegir?"Elija el día y la hora de su visita":"Visita de mantenimiento"}</h1><p class="muted" style="margin:4px 0 0">${esc(casaTxt(c))}</p></div>
-  <div class="card section"><dl class="kv"><dt>Trabajo</dt><dd>${esc(t.tipo)}</dd>${t.descripcion?`<dt>Detalle</dt><dd>${esc(t.descripcion)}</dd>`:""}<dt>Técnico</dt><dd>${esc(w?w.nombre:"Por asignar")}</dd>
+  <div class="card section"><dl class="kv"><dt>Trabajo</dt><dd>${esc(t.tipo)}</dd>${t.descripcion?`<dt>Detalle</dt><dd>${esc(t.descripcion)}</dd>`:""}<dt>${w&&/ y /.test(w.nombre)?"Técnicos":"Técnico"}</dt><dd>${esc(w?w.nombre:"Por asignar")}</dd>
   ${d?`<dt>Fecha</dt><dd>${fLarga(d)}</dd><dt>Hora</dt><dd>${hhmm(d)} a ${hhmm(finT(d,t.duracion))}</dd>`:""}<dt>Duración</dt><dd>Aprox. ${durTxt(t.duracion)}</dd></dl></div>`;
   if(elegir)h+=`<div class="section">${pickerHtml(t,ownerP,"owner")}</div>`;
   if(t.estado==="cancelada")h+=`<div class="alert bad section">Esta visita fue cancelada. Le contactaremos para reprogramarla.</div>`;
@@ -922,7 +936,7 @@ function slotsFor(t,day){
     if(enDescanso(st)){const dsc=DESCANSOS.find(([a,b])=>h*60>=a&&h*60<b);st=new Date(day.getFullYear(),day.getMonth(),day.getDate(),0,dsc[1]);if(st.getMinutes()===0)continue}
     const str=toStr(st);if(fueraJornada(str,t.duracion))continue;
     const past=st<addMin(new Date(),60);const fin=addMin(st,t.duracion);
-    const busy=!past&&(t.demo?(day.getDate()*3+h)%5===0:t.ocupado?t.ocupado.some(([a,b])=>parse(a)<fin&&parse(b)>st):conflictos(t.trabajadorId,str,t.duracion,t.id).length>0);
+    const busy=!past&&(t.demo?(day.getDate()*3+h)%5===0:t.ocupado?t.ocupado.some(([a,b])=>parse(a)<fin&&parse(b)>st):conflictosEquipo(t,str,t.duracion).length>0);
     out.push({s:str,d:st,ok:!past&&!busy,why:past?"No disponible":busy?"Ocupado":""});
   }
   return out;
@@ -958,11 +972,15 @@ async function pickConfirm(id){
     toast("¡Listo! Su visita quedó confirmada.");cargarCita(tok);return;
   }
   const t=S.tareas.find(x=>x.id===id);const P=curP();if(!t||!P.slot)return;const s=P.slot,od=parse(s);
-  if(conflictos(t.trabajadorId,s,t.duracion,id).length||fueraJornada(s,t.duracion)){toast("Ese horario acaba de ocuparse. Elija otro.");P.slot=null;rerenderPicker();return}
+  if(conflictosEquipo(t,s,t.duracion).length||fueraJornada(s,t.duracion)){toast("Ese horario acaba de ocuparse. Elija otro.");P.slot=null;rerenderPicker();return}
   const admin=sheet&&sheet.kind==="picker";
   if(db&&!readOnly&&canWrite!==false){
-    try{await db.collection("tareas").doc(id).update({inicio:s,estado:"programada",opciones:[],historial:hist(t,(admin?"Horario anotado: ":"El propietario eligió ")+fCorta(od)+" "+hhmm(od))});
-      await aviso(t,`Confirmado: ${t.tipo} en ${casaTxt(casa(t.casaId))}, ${fCorta(od)} ${hhmm(od)}`);
+    try{
+      // el horario elegido aplica a todo el equipo
+      for(const m of abiertosGrupo(t)){
+        await db.collection("tareas").doc(m.id).update({inicio:s,estado:"programada",opciones:[],historial:hist(m,(admin?"Horario anotado: ":"El propietario eligió ")+fCorta(od)+" "+hhmm(od))});
+        await aviso(m,`Confirmado: ${m.tipo} en ${casaTxt(casa(m.casaId))}, ${fCorta(od)} ${hhmm(od)}`);
+      }
       if(admin){toast("Horario guardado. Avise al propietario.");openSheet({kind:"mensaje",id})}else{toast("¡Listo! Su visita quedó confirmada.");render()}
       return}catch(e){if(admin)return}
   }
@@ -1063,6 +1081,8 @@ document.addEventListener("pointerup",()=>{if(!ckDrag)return;ckDrag=false;if(CK&
 document.addEventListener("pointercancel",()=>{ckDrag=false});
 
 function casaOptions(sel){return CONDOS.map(cn=>{const cs=S.casas.filter(c=>c.condominio===cn);return cs.length?`<optgroup label="${cn}">${cs.map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${esc(cn)} · ${c.bloque?"Bloque "+esc(c.bloque)+" · ":""}Casa ${esc(c.numero)}</option>`).join("")}</optgroup>`:""}).join("")}
+function trabOptions(sel){return S.trab.map(t=>`<option value="${t.id}" ${t.id===sel?"selected":""}>${esc(t.nombre)}${t.especialidad?" · "+esc(t.especialidad):""}</option>`).join("")}
+function extraTrabHtml(){return `<div class="row n-tw-row"><select class="in n-trab-x" aria-label="Otro trabajador"><option value="">Seleccione al otro trabajador…</option>${trabOptions("")}</select><button type="button" class="icon-btn light" data-act="rmtw" aria-label="Quitar este trabajador" style="width:44px;height:44px">${I.x}</button></div>`}
 function sheetNueva(s){
   const p=s.pre||{};const base=p.fecha?parse(p.fecha+"T08:00"):null;
   const def=base&&base>new Date()?toStr(base):(proximoLibre(p.trabajadorId||S.trab[0]?.id||"",new Date(),60)||toStr(addMin(startOfDay(addDays(new Date(),1)),8*60)));
@@ -1070,7 +1090,9 @@ function sheetNueva(s){
   if(!S.casas.length||!S.trab.length)return head("Nueva tarea")+`<div class="card empty"><p>Antes de asignar tareas registre al menos una casa y un trabajador.</p><div class="row wrapr" style="justify-content:center"><button class="btn btn-dark" data-act="go" data-h="casas">Ir a casas</button><button class="btn btn-ghost" data-act="go" data-h="equipo">Ir a equipo</button></div></div>`;
   return head("Nueva tarea","Se avisará al trabajador al guardarla")+`<form id="fnueva" class="stack" novalidate>
     <div class="field"><label for="n-casa">Casa</label><select id="n-casa" class="in" required><option value="">Seleccione la casa…</option>${casaOptions(p.casaId)}</select></div>
-    <div class="field"><label for="n-trab">Trabajador asignado</label><select id="n-trab" class="in" required><option value="">Seleccione al trabajador…</option>${S.trab.map(t=>`<option value="${t.id}" ${t.id===p.trabajadorId?"selected":""}>${esc(t.nombre)}${t.especialidad?" · "+esc(t.especialidad):""}</option>`).join("")}</select></div>
+    <div class="field"><label for="n-trab">Trabajador asignado</label><select id="n-trab" class="in" required><option value="">Seleccione al trabajador…</option>${trabOptions(p.trabajadorId)}</select>
+      <div id="n-trabs-extra" class="stack" style="gap:8px"></div>
+      ${S.trab.length>1?`<button type="button" class="link small" data-act="addtw" style="justify-self:start">${I.plus} Agregar otro trabajador (trabajo en equipo)</button>`:""}</div>
     <div class="field"><label for="n-tipo">Tipo de trabajo</label><select id="n-tipo" class="in">${TIPOS.map(([n,d])=>`<option value="${esc(n)}" data-d="${d}" ${n===p.tipo?"selected":""}>${esc(n)}</option>`).join("")}</select></div>
     <div class="field"><label for="n-desc">Descripción</label><textarea id="n-desc" class="in" placeholder="Qué reportó el propietario, dónde está el daño…">${esc(p.descripcion||"")}</textarea></div>
     <div class="field"><span class="lbl">Tiempo estimado</span><div class="choices" id="n-dur">${DUR.map(m=>`<button type="button" class="choice" data-act="dur" data-m="${m}" aria-pressed="${m===(p.duracion||120)}">${durTxt(m)}</button>`).join("")}</div></div>
@@ -1087,7 +1109,8 @@ function nuevaVals(){
   const prop=!document.getElementById("n-prop").hidden;
   const opciones=[];
   const inicio=prop?null:(f.querySelector("#n-fecha").value&&f.querySelector("#n-hora").value?f.querySelector("#n-fecha").value+"T"+f.querySelector("#n-hora").value:null);
-  return {casaId:f.querySelector("#n-casa").value,trabajadorId:f.querySelector("#n-trab").value,tipo:f.querySelector("#n-tipo").value,descripcion:f.querySelector("#n-desc").value.trim(),duracion:dur,prop,opciones,inicio};
+  const ids=[...new Set([f.querySelector("#n-trab").value,...[...f.querySelectorAll(".n-trab-x")].map(x=>x.value)].filter(Boolean))];
+  return {casaId:f.querySelector("#n-casa").value,trabajadorId:ids[0]||"",trabajadorIds:ids,tipo:f.querySelector("#n-tipo").value,descripcion:f.querySelector("#n-desc").value.trim(),duracion:dur,prop,opciones,inicio};
 }
 function checkNueva(){
   syncClock("n-hora");
@@ -1096,40 +1119,57 @@ function checkNueva(){
   const pd=document.getElementById("n-prop-dur");if(pd)pd.textContent=durTxt(v.duracion);
   if(v.duracion>(WORK1-WORK0)*60-DESCANSOS.reduce((n,[a,b])=>n+b-a,0)){ok=false;msgs.push(`<div class="alert bad">La duración supera la jornada de un día.</div>`)}
   if(!v.prop&&v.trabajadorId&&v.inicio){
-    const s=v.inicio;const cf=conflictos(v.trabajadorId,s,v.duracion);
+    const s=v.inicio,ids=v.trabajadorIds;
+    const ocupados=ids.map(w=>({w,cf:conflictos(w,s,v.duracion)})).filter(x=>x.cf.length);
     if(parse(s)<new Date()){ok=false;msgs.push(`<div class="alert bad">Esa hora ya pasó.</div>`)}
-    else if(fueraJornada(s,v.duracion)){ok=false;const nx=proximoLibre(v.trabajadorId,parse(s),v.duracion);msgs.push(`<div class="alert bad">Fuera del horario de trabajo: ${HORARIO_TXT}.${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibre" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`)}
-    else if(cf.length){ok=false;const nx=proximoLibre(v.trabajadorId,parse(s),v.duracion);msgs.push(`<div class="alert bad">${esc(trab(v.trabajadorId).nombre.split(" ")[0])} ya tiene ${conflictMsg(cf)}.${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibre" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`)}
-    else msgs.push(`<div class="alert okk">Horario libre: ${hhmm(parse(s))} – ${hhmm(finT(parse(s),v.duracion))}</div>`);
+    else if(fueraJornada(s,v.duracion)){ok=false;const nx=proximoLibre(ids,parse(s),v.duracion);msgs.push(`<div class="alert bad">Fuera del horario de trabajo: ${HORARIO_TXT}.${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibre" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`)}
+    else if(ocupados.length){ok=false;const nx=proximoLibre(ids,parse(s),v.duracion);msgs.push(`<div class="alert bad">${ocupados.map(o=>`${esc(trab(o.w).nombre.split(" ")[0])} ya tiene ${conflictMsg(o.cf)}`).join(". ")}.${nx&&ids.length>1?` Próximo espacio donde todos están libres:`:""}${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibre" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`)}
+    else msgs.push(`<div class="alert okk">Horario libre${v.trabajadorIds.length>1?" para todo el equipo":""}: ${hhmm(parse(s))} – ${hhmm(finT(parse(s),v.duracion))}</div>`);
   }
   out.innerHTML=msgs.join("");out.className=msgs.length?"stack":"";
-  const btn=document.getElementById("n-save");if(btn){btn.disabled=!ok||!v.casaId||!v.trabajadorId||(!v.prop&&!v.inicio);btn.textContent=v.prop?"Guardar y preparar enlace":"Guardar y avisar al trabajador"}
+  const eq=v.trabajadorIds.length>1;
+  const btn=document.getElementById("n-save");if(btn){btn.disabled=!ok||!v.casaId||!v.trabajadorId||(!v.prop&&!v.inicio);btn.textContent=v.prop?"Guardar y preparar enlace":eq?"Guardar y avisar al equipo":"Guardar y avisar al trabajador"}
 }
 async function guardarNueva(){
   const v=nuevaVals();if(!v)return;
-  const id=uid("t");
-  const t={casaId:v.casaId,trabajadorId:v.trabajadorId,tipo:v.tipo,descripcion:v.descripcion,duracion:v.duracion,inicio:v.inicio,estado:v.prop?"por_confirmar":"programada",opciones:v.opciones,fotos:[],nota:"",creada:new Date().toISOString(),historial:[{t:toStr(new Date()),txt:v.prop?"Creada; esperando que el propietario elija fecha":"Creada y asignada"}]};
+  const ids=v.trabajadorIds,grupo=ids.length>1?uid("g"):null;
+  const nombres=ids.map(w=>trab(w)?.nombre).filter(Boolean);
   document.getElementById("n-save").disabled=true;
-  try{await put("tareas",id,t)}catch(e){document.getElementById("n-save").disabled=false;return}
-  t.id=id;
-  const c=casa(t.casaId);
-  await aviso(t,`Nuevo trabajo: ${t.tipo} en ${casaTxt(c)}${v.prop?" (fecha por confirmar)":", "+fCorta(parse(t.inicio))+" "+hhmm(parse(t.inicio))}`);
-  toast("Tarea guardada. Aviso enviado al trabajador.");
-  openSheet({kind:"mensaje",id,fresh:true});
+  const c=casa(v.casaId);let primero=null;
+  // una tarea por trabajador; si son varios, quedan enlazadas en el mismo equipo (grupo)
+  for(const w of ids){
+    const id=uid("t");
+    const t={casaId:v.casaId,trabajadorId:w,tipo:v.tipo,descripcion:v.descripcion,duracion:v.duracion,inicio:v.inicio,estado:v.prop?"por_confirmar":"programada",opciones:v.opciones,fotos:[],nota:"",creada:new Date().toISOString(),...(grupo?{grupo}:{}),
+      historial:[{t:toStr(new Date()),txt:(v.prop?"Creada; esperando que el propietario elija fecha":"Creada y asignada")+(grupo?" · equipo: "+listaY(nombres):"")}]};
+    try{await put("tareas",id,t)}catch(e){if(!primero){document.getElementById("n-save").disabled=false;return}break}
+    t.id=id;if(!primero)primero=id;
+    const otros=listaY(nombres.filter(n=>n!==trab(w)?.nombre));
+    await aviso(t,`Nuevo trabajo: ${t.tipo} en ${casaTxt(c)}${v.prop?" (fecha por confirmar)":", "+fCorta(parse(t.inicio))+" "+hhmm(parse(t.inicio))}${grupo?" · en equipo con "+otros:""}`);
+  }
+  toast(grupo?"Tarea guardada. Aviso enviado a todo el equipo.":"Tarea guardada. Aviso enviado al trabajador.");
+  openSheet({kind:"mensaje",id:primero,fresh:true});
 }
 
 function sheetDetalle(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Tarea")+`<p class="muted">Esta tarea ya no existe.</p>`;
   const c=casa(t.casaId),w=trab(t.trabajadorId),d=parse(t.inicio);const abierta=t.estado==="programada"||t.estado==="por_confirmar";
-  let h=head(esc(casaTxt(c)),`<span class="pill st-${t.estado}" style="margin-top:6px">${ESTADO[t.estado]}</span>`);
-  h+=`<div class="card"><dl class="kv"><dt>Trabajo</dt><dd>${esc(t.tipo)}</dd>${t.descripcion?`<dt>Detalle</dt><dd>${esc(t.descripcion)}</dd>`:""}<dt>Trabajador</dt><dd>${esc(w?w.nombre:"—")}</dd>${d?`<dt>Fecha</dt><dd>${fLarga(d)}</dd><dt>Hora</dt><dd>${hhmm(d)} – ${hhmm(finT(d,t.duracion))}</dd>`:`<dt>Fecha</dt><dd>Por definir: la elige el propietario</dd>`}<dt>Estimado</dt><dd>${durTxt(t.duracion)}</dd>${c&&c.propietario?`<dt>Propietario</dt><dd>${esc(c.propietario)}${c.telefono?" · "+esc(c.telefono):""}</dd>`:""}</dl></div>`;
+  const eq=grupoDe(t),varios=eq.length>1,nom=m=>trab(m.trabajadorId)?.nombre||"—";
+  const terminado=varios&&eq.every(m=>m.estado==="finalizada");
+  let h=head(esc(casaTxt(c)),`<span class="pill st-${terminado?"finalizada":t.estado}" style="margin-top:6px">${terminado?"Finalizada por todo el equipo":ESTADO[t.estado]}</span>`);
+  const trabRow=varios?`<dt>Equipo</dt><dd class="stack" style="gap:4px">${eq.map(m=>`<span>${esc(nom(m))} <span class="pill st-${m.estado}" style="font-size:11px;padding:1px 8px">${ESTADO[m.estado]}</span></span>`).join("")}</dd>`:`<dt>Trabajador</dt><dd>${esc(w?w.nombre:"—")}</dd>`;
+  h+=`<div class="card"><dl class="kv"><dt>Trabajo</dt><dd>${esc(t.tipo)}</dd>${t.descripcion?`<dt>Detalle</dt><dd>${esc(t.descripcion)}</dd>`:""}${trabRow}${d?`<dt>Fecha</dt><dd>${fLarga(d)}</dd><dt>Hora</dt><dd>${hhmm(d)} – ${hhmm(finT(d,t.duracion))}</dd>`:`<dt>Fecha</dt><dd>Por definir: la elige el propietario</dd>`}<dt>Estimado</dt><dd>${durTxt(t.duracion)}</dd>${c&&c.propietario?`<dt>Propietario</dt><dd>${esc(c.propietario)}${c.telefono?" · "+esc(c.telefono):""}</dd>`:""}</dl></div>`;
   if(t.estado==="por_confirmar"&&isAdmin()&&!readOnly)h+=`<div class="section"><button class="btn btn-dark" style="width:100%" data-act="picker" data-id="${t.id}">Anotar el horario que eligió el propietario</button></div>`;
-  if(t.nota||(t.fotos||[]).length)h+=`<div class="section stack"><h3>Reporte del trabajador</h3>${t.nota?`<div class="card">${esc(t.nota)}</div>`:""}${(t.fotos||[]).length?`<div class="photos">${t.fotos.map(f=>`<a href="${esc(blobUrl(f))}" target="_blank" rel="noopener"><img src="${esc(blobUrl(f))}" alt="Fotografía del trabajo"></a>`).join("")}</div>`:""}</div>`;
+  // reporte de cada integrante (cada uno reporta por separado)
+  for(const m of eq){if(!(m.nota||(m.fotos||[]).length))continue;
+    h+=`<div class="section stack"><h3>${varios?"Reporte de "+esc(nom(m)):"Reporte del trabajador"}</h3>${m.nota?`<div class="card">${esc(m.nota)}</div>`:""}${(m.fotos||[]).length?`<div class="photos">${m.fotos.map(f=>`<a href="${esc(blobUrl(f))}" target="_blank" rel="noopener"><img src="${esc(blobUrl(f))}" alt="Fotografía del trabajo"></a>`).join("")}</div>`:""}</div>`}
   h+=`<div class="section stack">`;
   if(!readOnly){
-    if(d)h+=`<button class="btn btn-lime" data-act="reporte" data-id="${t.id}">${t.estado==="finalizada"||t.estado==="pendiente"?"Actualizar reporte y fotos":"Registrar avance (finalizada / pendiente)"}</button>`;
+    const repLbl=m=>(m.estado==="finalizada"||m.estado==="pendiente"?"Actualizar reporte y fotos":"Registrar avance (finalizada / pendiente)")+(varios&&isAdmin()?" · "+nom(m).split(" ")[0]:"");
+    if(d){if(varios&&isAdmin())h+=eq.filter(m=>m.estado!=="cancelada").map(m=>`<button class="btn btn-lime" data-act="reporte" data-id="${m.id}">${esc(repLbl(m))}</button>`).join("");
+      else h+=`<button class="btn btn-lime" data-act="reporte" data-id="${t.id}">${repLbl(t)}</button>`}
     if(isAdmin()&&abierta)h+=`<div class="row wrapr">${d?`<button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button><button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>`:""}<button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-ghost btn-sm" data-act="cambtrab" data-id="${t.id}">Cambiar trabajador</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`;
-    if(isAdmin()&&t.estado==="programada"&&d)h+=`<div class="stack" style="gap:4px">${recBtn(t).replace("btn-sm","")}${t.recordatorioEn?`<span class="muted small" style="text-align:center">Último recordatorio: ${fCorta(new Date(t.recordatorioEn))} ${hhmm(new Date(t.recordatorioEn))}</span>`:""}</div>`;
+    if(isAdmin()&&varios&&d)h+=abiertosGrupo(t).filter(m=>m.estado==="programada").map(m=>recBtn(m,"","Recordatorio a "+nom(m).split(" ")[0]).replace("btn-sm","")).join("");
+    else if(isAdmin()&&t.estado==="programada"&&d)h+=`<div class="stack" style="gap:4px">${recBtn(t).replace("btn-sm","")}${t.recordatorioEn?`<span class="muted small" style="text-align:center">Último recordatorio: ${fCorta(new Date(t.recordatorioEn))} ${hhmm(new Date(t.recordatorioEn))}</span>`:""}</div>`;
     if(isAdmin())h+=`<button class="btn btn-dark" data-act="mensaje" data-id="${t.id}">${I.link} Enlace y mensaje para el propietario</button>`;
     if(isAdmin()&&t.estado==="pendiente")h+=`<button class="btn btn-ghost" data-act="seguimiento" data-id="${t.id}">Programar visita de seguimiento</button>`;
     if(isAdmin()&&t.estado==="cancelada")h+=`<button class="btn btn-ghost" data-act="reactivar" data-id="${t.id}">Reprogramar esta tarea</button>`;
@@ -1144,8 +1184,8 @@ function sheetPosponer(s){
   const d=parse(t.inicio);
   const nextWork=x=>{let y=addDays(x,1);while(y.getDay()===0||y.getDay()===6)y=addDays(y,1);return y};
   const opts=[["1 hora más tarde",toStr(addMin(d,60))],["2 horas más tarde",toStr(addMin(d,120))],["Siguiente día hábil, misma hora",toStr(nextWork(d))],["Próxima semana, mismo día",toStr(addDays(d,7))]];
-  const nx=proximoLibre(t.trabajadorId,addMin(d,30),t.duracion,t.id);if(nx)opts.unshift(["Próximo espacio libre",nx]);
-  return head("Posponer",esc(casaTxt(casa(t.casaId)))+" · ahora "+fCorta(d)+" "+hhmm(d))+`<div class="stack">${opts.map(([lab,s2])=>{const cf=conflictos(t.trabajadorId,s2,t.duracion,t.id);const fj=fueraJornada(s2,t.duracion);const bad=cf.length||fj;const od=parse(s2);return `<div class="opt"><span style="min-width:0"><b>${lab}</b><br><span class="muted small">${fCorta(od)} · ${hhmm(od)}${cf.length?` · <span style="color:var(--danger)">choca con ${conflictMsg(cf)}</span>`:fj?` · <span style="color:var(--danger)">fuera del horario</span>`:""}</span></span><button class="btn ${bad?"btn-ghost":"btn-dark"} btn-sm" data-act="aplicarhora" data-id="${t.id}" data-s="${s2}" ${bad?"disabled":""}>Mover</button></div>`}).join("")}
+  const nx=proximoLibre(trabEquipo(t),addMin(d,30),t.duracion,abiertosGrupo(t).map(x=>x.id));if(nx)opts.unshift([enEquipo(t)?"Próximo espacio libre para el equipo":"Próximo espacio libre",nx]);
+  return head("Posponer",esc(casaTxt(casa(t.casaId)))+" · ahora "+fCorta(d)+" "+hhmm(d)+(enEquipo(t)?" · equipo: "+esc(equipoTxt(t)):""))+`<div class="stack">${opts.map(([lab,s2])=>{const cf=conflictosEquipo(t,s2,t.duracion);const fj=fueraJornada(s2,t.duracion);const bad=cf.length||fj;const od=parse(s2);return `<div class="opt"><span style="min-width:0"><b>${lab}</b><br><span class="muted small">${fCorta(od)} · ${hhmm(od)}${cf.length?` · <span style="color:var(--danger)">choca con ${conflictMsg(cf)}</span>`:fj?` · <span style="color:var(--danger)">fuera del horario</span>`:""}</span></span><button class="btn ${bad?"btn-ghost":"btn-dark"} btn-sm" data-act="aplicarhora" data-id="${t.id}" data-s="${s2}" ${bad?"disabled":""}>Mover</button></div>`}).join("")}
   <button class="link" data-act="hora" data-id="${t.id}">Elegir otra fecha y hora ${I.next}</button></div>`;
 }
 function sheetHora(s){
@@ -1161,46 +1201,81 @@ function checkHora(){
   const t=S.tareas.find(x=>x.id===sheet?.id);const out=document.getElementById("h-check");if(!t||!out)return;
   const f=document.getElementById("h-fecha").value,h=document.getElementById("h-hora").value,tw=document.getElementById("h-trab").value;
   const btn=document.getElementById("h-save");if(!f||!h){btn.disabled=true;return}
-  const s=f+"T"+h;const cf=conflictos(tw,s,t.duracion,t.id);let ok=true,m="";
-  if(parse(s)<new Date()){ok=false;m=`<div class="alert bad">Esa hora ya pasó.</div>`}
-  else if(cf.length){ok=false;const nx=proximoLibre(tw,parse(s),t.duracion,t.id);m=`<div class="alert bad">Choca con ${conflictMsg(cf)}.${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibreh" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`}
-  else if(fueraJornada(s,t.duracion)){ok=false;const nx=proximoLibre(tw,parse(s),t.duracion,t.id);m=`<div class="alert bad">Fuera del horario de trabajo: ${HORARIO_TXT}.${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibreh" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`}
-  else m=`<div class="alert okk">Horario libre.</div>`;
+  const s=f+"T"+h;const cf=conflictosEquipo(t,s,t.duracion,tw);let ok=true,m="";
+  const ws=trabEquipo(t,tw),ex=abiertosGrupo(t).map(x=>x.id);
+  if(tw!==t.trabajadorId&&grupoDe(t).some(x=>x.id!==t.id&&x.trabajadorId===tw)){ok=false;m=`<div class="alert bad">${esc(trab(tw)?.nombre||"")} ya está en el equipo de esta tarea.</div>`}
+  else if(parse(s)<new Date()){ok=false;m=`<div class="alert bad">Esa hora ya pasó.</div>`}
+  else if(cf.length){ok=false;const nx=proximoLibre(ws,parse(s),t.duracion,ex);m=`<div class="alert bad">Choca con ${conflictMsg(cf)}.${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibreh" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`}
+  else if(fueraJornada(s,t.duracion)){ok=false;const nx=proximoLibre(ws,parse(s),t.duracion,ex);m=`<div class="alert bad">Fuera del horario de trabajo: ${HORARIO_TXT}.${nx?` <button type="button" class="link" style="color:inherit;text-decoration:underline" data-act="usarlibreh" data-s="${nx}">Usar ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`:""}</div>`}
+  else m=`<div class="alert okk">Horario libre${enEquipo(t)?" para todo el equipo ("+esc(listaY(ws.map(w=>trab(w)?.nombre).filter(Boolean)))+")":""}.</div>`;
   out.innerHTML=m;btn.disabled=!ok;
 }
 async function aplicarHora(id,s,tw){
   const t=S.tareas.find(x=>x.id===id);if(!t)return;
-  tw=tw||t.trabajadorId;
-  if(conflictos(tw,s,t.duracion,id).length){toast("Ese horario ya está ocupado.");return}
+  tw=tw||t.trabajadorId;const cambioTrab=tw!==t.trabajadorId;
+  if(cambioTrab&&grupoDe(t).some(x=>x.id!==t.id&&x.trabajadorId===tw)){toast("Ese trabajador ya está en el equipo.");return}
+  if(conflictosEquipo(t,s,t.duracion,tw).length){toast("Ese horario ya está ocupado.");return}
   if(fueraJornada(s,t.duracion)){toast("Ese horario está fuera de la jornada.");return}
-  const antes=parse(t.inicio);const cambioTrab=tw!==t.trabajadorId;
-  const upd={inicio:s,trabajadorId:tw,historial:hist(t,s===t.inicio&&cambioTrab?"Reasignada a "+(trab(tw)?.nombre||""):`${antes?`Movida de ${fCorta(antes)} ${hhmm(antes)} a`:"Programada para"} ${fCorta(parse(s))} ${hhmm(parse(s))}${cambioTrab?" · reasignada a "+(trab(tw)?.nombre||""):""}`)};
-  if(t.estado==="por_confirmar"){upd.estado="programada";upd.opciones=[]}
-  if(t.recordatorioEn)upd.recordatorioEn=null;   // con la nueva hora, el recordatorio se vuelve a pedir
-  try{await patch("tareas",id,upd)}catch(e){return}
-  const nt=Object.assign({},t,upd);
-  await aviso(nt,`${cambioTrab?"Le asignaron":"Cambio de hora"}: ${t.tipo} en ${casaTxt(casa(t.casaId))}, ahora ${fCorta(parse(s))} ${hhmm(parse(s))}`);
-  if(cambioTrab)await aviso(Object.assign({},t),`Se le quitó: ${t.tipo} en ${casaTxt(casa(t.casaId))}`);
-  toast("Horario actualizado. Avise también al propietario.");
+  // un cambio de hora mueve a todo el equipo; un cambio de trabajador solo afecta a esa persona
+  const mueve=s!==t.inicio,miembros=mueve?abiertosGrupo(t):[t];
+  for(const m of miembros){
+    const esT=m.id===t.id,camb=esT&&cambioTrab,w=esT?tw:m.trabajadorId,antes=parse(m.inicio);
+    const upd={inicio:s,historial:hist(m,!mueve&&camb?"Reasignada a "+(trab(w)?.nombre||""):`${antes?`Movida de ${fCorta(antes)} ${hhmm(antes)} a`:"Programada para"} ${fCorta(parse(s))} ${hhmm(parse(s))}${camb?" · reasignada a "+(trab(w)?.nombre||""):""}`)};
+    if(camb)upd.trabajadorId=w;
+    if(m.estado==="por_confirmar"){upd.estado="programada";upd.opciones=[]}
+    if(m.recordatorioEn)upd.recordatorioEn=null;   // con la nueva hora o persona, el recordatorio se vuelve a pedir
+    try{await patch("tareas",m.id,upd)}catch(e){return}
+    await aviso(Object.assign({},m,upd),`${camb?"Le asignaron":"Cambio de hora"}: ${m.tipo} en ${casaTxt(casa(m.casaId))}, ahora ${fCorta(parse(s))} ${hhmm(parse(s))}`);
+    if(camb)await aviso(Object.assign({},m),`Se le quitó: ${m.tipo} en ${casaTxt(casa(m.casaId))}`);
+  }
+  toast(miembros.length>1?"Horario actualizado para todo el equipo. Avise también al propietario.":"Horario actualizado. Avise también al propietario.");
   openSheet({kind:"mensaje",id});
 }
 // ---------- cambiar trabajador ----------
 function sheetTrab(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Cambiar trabajador");
-  const d=parse(t.inicio);
+  const d=parse(t.inicio);const equipo=abiertosGrupo(t),ex=equipo.map(x=>x.id),varios=equipo.length>1;
   const rows=S.trab.map(w=>{
     let estado="",btn="";
-    if(w.id===t.trabajadorId)estado=`<span class="small" style="color:var(--lime-ink);font-weight:700">Asignado ahora</span>`;
-    else if(!d){estado=`<span class="muted small">La fecha la elige el propietario</span>`;btn=`<button class="btn btn-dark btn-sm" data-act="asigtrab" data-id="${t.id}" data-w="${w.id}">Asignar</button>`}
+    const miembro=equipo.find(x=>x.trabajadorId===w.id);
+    const quitar=m=>varios?`<button class="btn btn-danger btn-sm" data-act="quitartw" data-id="${m.id}">Quitar del equipo</button>`:"";
+    if(w.id===t.trabajadorId){estado=`<span class="small" style="color:var(--lime-ink);font-weight:700">Asignado ahora</span>`;btn=quitar(t)}
+    else if(miembro){estado=`<span class="small" style="color:var(--lime-ink);font-weight:700">En el equipo</span>`;btn=quitar(miembro)}
+    else if(!d){estado=`<span class="muted small">La fecha la elige el propietario</span>`;btn=`<span class="row wrapr" style="gap:6px"><button class="btn btn-dark btn-sm" data-act="asigtrab" data-id="${t.id}" data-w="${w.id}">Asignar en su lugar</button><button class="btn btn-ghost btn-sm" data-act="agregartw" data-id="${t.id}" data-w="${w.id}">${I.plus} Agregar al equipo</button></span>`}
     else{
-      const cf=conflictos(w.id,t.inicio,t.duracion,t.id);
-      if(!cf.length){estado=`<span class="small" style="color:var(--ok);font-weight:700">Disponible a esa hora</span>`;btn=`<button class="btn btn-dark btn-sm" data-act="asigtrab" data-id="${t.id}" data-w="${w.id}">Asignar</button>`}
-      else{const nx=proximoLibre(w.id,startOfDay(d),t.duracion,t.id);estado=`<span class="small" style="color:var(--danger)">Ocupado: ${conflictMsg(cf)}</span>`;
-        if(nx)btn=`<button class="btn btn-ghost btn-sm" data-act="asigtrab" data-id="${t.id}" data-w="${w.id}" data-s="${nx}">Asignar y mover a ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`}
+      const cf=conflictos(w.id,t.inicio,t.duracion,ex);
+      if(!cf.length){estado=`<span class="small" style="color:var(--ok);font-weight:700">Disponible a esa hora</span>`;btn=`<span class="row wrapr" style="gap:6px"><button class="btn btn-dark btn-sm" data-act="asigtrab" data-id="${t.id}" data-w="${w.id}">Asignar en su lugar</button><button class="btn btn-ghost btn-sm" data-act="agregartw" data-id="${t.id}" data-w="${w.id}">${I.plus} Agregar al equipo</button></span>`}
+      else{const nx=proximoLibre(trabEquipo(t,w.id),startOfDay(d),t.duracion,ex);estado=`<span class="small" style="color:var(--danger)">Ocupado: ${conflictMsg(cf)}</span>`;
+        if(nx)btn=`<button class="btn btn-ghost btn-sm" data-act="asigtrab" data-id="${t.id}" data-w="${w.id}" data-s="${nx}">Asignar en su lugar y mover a ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button>`}
     }
     return `<div class="opt" style="align-items:center;flex-wrap:wrap"><span class="row" style="min-width:0;flex:1 1 200px;align-items:flex-start"><span class="avatar" style="background:${color(w.id)};width:34px;height:34px;font-size:12px">${esc(initials(w.nombre))}</span><span style="min-width:0"><b>${esc(w.nombre)}</b><br><span class="muted small">${esc(w.especialidad||"Postventa")}</span><br>${estado}</span></span>${btn}</div>`;
   }).join("");
-  return head("Cambiar trabajador",esc(casaTxt(casa(t.casaId)))+(d?" · "+fCorta(d)+", "+hhmm(d)+" – "+hhmm(finT(d,t.duracion)):" · fecha por definir"))+`<div class="stack">${rows||`<p class="muted">No hay trabajadores registrados.</p>`}<p class="muted small" style="margin:0">Se avisa al trabajador nuevo y al anterior.</p></div>`;
+  return head(varios?"Equipo de trabajo":"Cambiar trabajador",esc(casaTxt(casa(t.casaId)))+(d?" · "+fCorta(d)+", "+hhmm(d)+" – "+hhmm(finT(d,t.duracion)):" · fecha por definir"))+`<div class="stack">${varios?`<div class="alert info">Equipo actual: <b>${esc(equipoTxt(t))}</b>. Cada uno registra su propio avance.</div>`:""}${rows||`<p class="muted">No hay trabajadores registrados.</p>`}<p class="muted small" style="margin:0">«Asignar en su lugar» cambia a ${esc(trab(t.trabajadorId)?.nombre||"este trabajador")}; «Agregar al equipo» suma a otra persona. Siempre se avisa a los involucrados.</p></div>`;
+}
+async function agregarAlEquipo(id,wid){
+  const t=S.tareas.find(x=>x.id===id);if(!t||!wid)return;
+  if(abiertosGrupo(t).some(x=>x.trabajadorId===wid)){toast("Ese trabajador ya está en el equipo.");return}
+  if(t.inicio&&conflictos(wid,t.inicio,t.duracion,abiertosGrupo(t).map(x=>x.id)).length){toast("Ese trabajador está ocupado a esa hora.");return}
+  const antes=equipoTxt(t),nombre=trab(wid)?.nombre||"",g=t.grupo||uid("g");
+  if(!t.grupo){try{await patch("tareas",t.id,{grupo:g,historial:hist(t,"Ahora es trabajo en equipo")})}catch(e){return}}
+  const nid=uid("t");
+  const nt={casaId:t.casaId,trabajadorId:wid,tipo:t.tipo,descripcion:t.descripcion,duracion:t.duracion,inicio:t.inicio||null,estado:t.estado==="por_confirmar"?"por_confirmar":"programada",opciones:[],fotos:[],nota:"",creada:new Date().toISOString(),grupo:g,historial:[{t:toStr(new Date()),txt:"Agregado al equipo de "+antes}]};
+  try{await put("tareas",nid,nt)}catch(e){return}
+  nt.id=nid;const d=parse(t.inicio);
+  await aviso(nt,`Nuevo trabajo: ${t.tipo} en ${casaTxt(casa(t.casaId))}${d?", "+fCorta(d)+" "+hhmm(d):" (fecha por confirmar)"} · en equipo con ${antes}`);
+  for(const m of abiertosGrupo(t).filter(x=>x.trabajadorId!==wid))await aviso(m,`${nombre} se une a su trabajo: ${m.tipo} en ${casaTxt(casa(m.casaId))}`);
+  toast(nombre+" agregado al equipo.");openSheet({kind:"trab",id});
+}
+async function quitarDelEquipo(mid){
+  const m=S.tareas.find(x=>x.id===mid);if(!m)return;
+  const resto=abiertosGrupo(m).filter(x=>x.id!==mid);
+  if(!resto.length){toast("Es la única persona asignada: use «Asignar en su lugar» o Cancelar.");return}
+  const nombre=trab(m.trabajadorId)?.nombre||"Trabajador";
+  try{await patch("tareas",mid,{estado:"cancelada",motivo:"Quitado del equipo",historial:hist(m,"Quitado del equipo")})}catch(e){return}
+  await aviso(m,`Se le quitó: ${m.tipo} en ${casaTxt(casa(m.casaId))}`);
+  for(const r of resto)await aviso(r,`${nombre} ya no participa en: ${r.tipo} en ${casaTxt(casa(r.casaId))}`);
+  toast(nombre+" quitado del equipo.");
+  openSheet({kind:"trab",id:sheet&&sheet.id!==mid?sheet.id:resto[0].id});
 }
 async function asignarTrab(id,wid,nuevoInicio){
   const t=S.tareas.find(x=>x.id===id);if(!t||!wid||wid===t.trabajadorId)return;
@@ -1218,9 +1293,9 @@ function durEval(t,m){
   // devuelve {ok, html, mover}: valida el nuevo tiempo contra la jornada y la agenda del trabajador
   const d=parse(t.inicio);
   if(!d)return {ok:true,html:`<div class="alert info">La fecha la elige el propietario: verá bloques de <b>${durTxt(m)}</b>. Si ya le envió el enlace, mándeselo de nuevo.</div>`};
-  const fin=finT(d,m),fj=fueraJornada(t.inicio,m),cf=conflictos(t.trabajadorId,t.inicio,m,t.id);
-  if(!fj&&!cf.length)return {ok:true,html:`<div class="alert okk">Nuevo horario: ${hhmm(d)} – ${hhmm(fin)}</div>`};
-  const nx=proximoLibre(t.trabajadorId,startOfDay(d),m,t.id);   // busca desde el inicio de ese mismo día
+  const fin=finT(d,m),fj=fueraJornada(t.inicio,m),cf=conflictosEquipo(t,t.inicio,m);
+  if(!fj&&!cf.length)return {ok:true,html:`<div class="alert okk">Nuevo horario${enEquipo(t)?" del equipo":""}: ${hhmm(d)} – ${hhmm(fin)}</div>`};
+  const nx=proximoLibre(trabEquipo(t),startOfDay(d),m,abiertosGrupo(t).map(x=>x.id));   // busca desde el inicio de ese mismo día
   const motivo=fj?`Con ${durTxt(m)} se sale de la jornada (terminaría ${hhmm(fin)}). Horario: ${HORARIO_TXT}.`:`Con ${durTxt(m)} choca con ${conflictMsg(cf)}.`;
   return {ok:false,mover:nx,html:`<div class="alert bad">${motivo}${nx?`<div style="margin-top:8px"><button type="button" class="btn btn-dark btn-sm" data-act="durmover" data-id="${t.id}" data-s="${nx}">Mover a ${fCorta(parse(nx))}, ${hhmm(parse(nx))}</button></div>`:""}</div>`};
 }
@@ -1236,18 +1311,21 @@ function sheetDuracion(s){
 async function guardarDur(id,m,nuevoInicio){
   const t=S.tareas.find(x=>x.id===id);if(!t||!m)return;
   const s=nuevoInicio||t.inicio;
-  if(s){if(fueraJornada(s,m)){toast("Ese tiempo se sale de la jornada.");return}if(conflictos(t.trabajadorId,s,m,id).length){toast("Ese horario ya está ocupado.");return}}
-  const upd={duracion:m,historial:hist(t,`Duración cambiada de ${durTxt(t.duracion)} a ${durTxt(m)}`+(nuevoInicio?` · movida a ${fCorta(parse(nuevoInicio))} ${hhmm(parse(nuevoInicio))}`:""))};
-  if(nuevoInicio){upd.inicio=nuevoInicio;if(t.recordatorioEn)upd.recordatorioEn=null}
-  try{await patch("tareas",id,upd)}catch(e){return}
+  if(s){if(fueraJornada(s,m)){toast("Ese tiempo se sale de la jornada.");return}if(conflictosEquipo(t,s,m).length){toast("Ese horario ya está ocupado.");return}}
   const di=parse(s);
-  await aviso(Object.assign({},t,upd),`Cambio de duración: ${t.tipo} en ${casaTxt(casa(t.casaId))}, ahora ${durTxt(m)}${di?` (${fCorta(di)} ${hhmm(di)} a ${hhmm(finT(di,m))})`:""}`);
+  // la duración es la misma para todo el equipo
+  for(const mb of abiertosGrupo(t)){
+    const upd={duracion:m,historial:hist(mb,`Duración cambiada de ${durTxt(mb.duracion)} a ${durTxt(m)}`+(nuevoInicio?` · movida a ${fCorta(parse(nuevoInicio))} ${hhmm(parse(nuevoInicio))}`:""))};
+    if(nuevoInicio){upd.inicio=nuevoInicio;if(mb.recordatorioEn)upd.recordatorioEn=null}
+    try{await patch("tareas",mb.id,upd)}catch(e){return}
+    await aviso(Object.assign({},mb,upd),`Cambio de duración: ${mb.tipo} en ${casaTxt(casa(mb.casaId))}, ahora ${durTxt(m)}${di?` (${fCorta(di)} ${hhmm(di)} a ${hhmm(finT(di,m))})`:""}`);
+  }
   toast("Duración actualizada. Avise también al propietario.");
   openSheet({kind:"mensaje",id});
 }
 function sheetCancelar(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Cancelar");
-  return head("¿Cancelar esta tarea?",esc(casaTxt(casa(t.casaId)))+(t.inicio?" · "+fCorta(parse(t.inicio))+" "+hhmm(parse(t.inicio)):" · sin fecha"))+`<div class="stack"><div class="field"><label for="c-mot">Motivo (opcional)</label><input id="c-mot" class="in" placeholder="Ej. el propietario no estará"></div><p class="muted small" style="margin:0">El espacio se libera en el calendario y se avisa al trabajador. Podrá reprogramarla después.</p><div class="row"><button class="btn btn-ghost" data-act="close" style="flex:1">Volver</button><button class="btn btn-dark" style="flex:1;background:var(--danger);color:#fff" data-act="confcancel" data-id="${t.id}">Cancelar tarea</button></div></div>`;
+  return head("¿Cancelar esta tarea?",esc(casaTxt(casa(t.casaId)))+(t.inicio?" · "+fCorta(parse(t.inicio))+" "+hhmm(parse(t.inicio)):" · sin fecha"))+`<div class="stack"><div class="field"><label for="c-mot">Motivo (opcional)</label><input id="c-mot" class="in" placeholder="Ej. el propietario no estará"></div><p class="muted small" style="margin:0">${enEquipo(t)?`Se cancela para todo el equipo (${esc(equipoTxt(t))}) y se avisa a cada uno. Para sacar solo a una persona use «Cambiar trabajador».`:"El espacio se libera en el calendario y se avisa al trabajador."} Podrá reprogramarla después.</p><div class="row"><button class="btn btn-ghost" data-act="close" style="flex:1">Volver</button><button class="btn btn-dark" style="flex:1;background:var(--danger);color:#fff" data-act="confcancel" data-id="${t.id}">Cancelar tarea</button></div></div>`;
 }
 function sheetReporte(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Avance");
@@ -1297,15 +1375,15 @@ function msgOwner(t){
   const c=casa(t.casaId),w=trab(t.trabajadorId),d=parse(t.inicio);
   const saludo=`Hola${c&&c.propietario?" "+c.propietario.split(" ")[0]:""}, le saluda el equipo de Postventa de Ciudad del Valle.`;
   if(t.estado==="por_confirmar"&&!d){
-    return `${saludo}\n\nVamos a atender su reporte en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• Técnico: ${w?w.nombre:"por asignar"}\n• Duración aproximada: ${durTxt(t.duracion)}\n\nPor favor elija el día y la hora que mejor le convengan (${HORARIO_TXT}) en este enlace:\n${linkFor(t.id)}\n\nSi no puede abrirlo, respóndanos con el día y la hora que prefiera.`;
+    return `${saludo}\n\nVamos a atender su reporte en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• ${enEquipo(t)?"Técnicos: "+equipoTxt(t):"Técnico: "+(w?w.nombre:"por asignar")}\n• Duración aproximada: ${durTxt(t.duracion)}\n\nPor favor elija el día y la hora que mejor le convengan (${HORARIO_TXT}) en este enlace:\n${linkFor(t.id)}\n\nSi no puede abrirlo, respóndanos con el día y la hora que prefiera.`;
   }
   if(t.estado==="cancelada")return `${saludo}\n\nLe informamos que la visita${d?" programada para "+fLarga(d)+" a las "+hhmm(d):""} en ${casaTxt(c)} fue cancelada. Le contactaremos para reprogramarla.`;
-  return `${saludo}\n\nLe confirmamos la visita de mantenimiento en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• Técnico: ${w?w.nombre:""}\n• Fecha: ${fLarga(d)}\n• Hora: ${hhmm(d)} a ${hhmm(finT(d,t.duracion))} (aprox. ${durTxt(t.duracion)})\n\nDetalles de la visita:\n${linkFor(t.id)}`;
+  return `${saludo}\n\nLe confirmamos la visita de mantenimiento en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• ${enEquipo(t)?"Técnicos: "+equipoTxt(t):"Técnico: "+(w?w.nombre:"")}\n• Fecha: ${fLarga(d)}\n• Hora: ${hhmm(d)} a ${hhmm(finT(d,t.duracion))} (aprox. ${durTxt(t.duracion)})\n\nDetalles de la visita:\n${linkFor(t.id)}`;
 }
 // ---------- recordatorio al trabajador 1 hora antes ----------
 function msgRecordatorio(t){
   const c=casa(t.casaId),w=trab(t.trabajadorId),d=parse(t.inicio);
-  return `Hola ${w?w.nombre.split(" ")[0]:""}, le recuerdo su próximo trabajo:\n• ${sameDay(d,new Date())?"Hoy":fLarga(d)} a las ${hhmm(d)} (hasta ${hhmm(finT(d,t.duracion))})\n• ${t.tipo} en ${casaTxt(c)}${t.descripcion?"\n• Detalle: "+t.descripcion:""}\n\nPor favor confírmeme cuando vaya en camino. ¡Gracias!`;
+  return `Hola ${w?w.nombre.split(" ")[0]:""}, le recuerdo su próximo trabajo:\n• ${sameDay(d,new Date())?"Hoy":fLarga(d)} a las ${hhmm(d)} (hasta ${hhmm(finT(d,t.duracion))})\n• ${t.tipo} en ${casaTxt(c)}${enEquipo(t)?"\n• En equipo con: "+companerosTxt(t):""}${t.descripcion?"\n• Detalle: "+t.descripcion:""}\n\nPor favor confírmeme cuando vaya en camino. ¡Gracias!`;
 }
 function pendRecordatorios(){
   if(!isAdmin())return [];
@@ -1320,11 +1398,11 @@ function recCard(t){
     <div class="rem-actions">${w&&w.telefono?`<a class="btn btn-lime btn-sm" data-act="recenviar" data-id="${t.id}" href="${esc(wa(w.telefono,msgRecordatorio(t)))}" target="_blank" rel="noopener">Enviar por WhatsApp</a>`:`<span class="muted small" style="flex:1">Sin teléfono registrado: agréguelo en Equipo → Editar.</span>`}<button class="btn btn-ghost btn-sm" data-act="recomitir" data-id="${t.id}">Ya le avisé</button></div></article>`;
 }
 // botón "Enviar recordatorio" disponible en cada tarea programada
-function recBtn(t,cls){
+function recBtn(t,cls,label){
   if(t.estado!=="programada"||!t.inicio)return "";
-  const w=trab(t.trabajadorId);
-  if(!w||!w.telefono)return `<button class="btn btn-ghost btn-sm ${cls||""}" data-act="recsintel">${I.bell} Enviar recordatorio</button>`;
-  return `<a class="btn btn-ghost btn-sm ${cls||""}" data-act="recenviar" data-id="${t.id}" href="${esc(wa(w.telefono,msgRecordatorio(t)))}" target="_blank" rel="noopener">${I.bell} Enviar recordatorio</a>`;
+  const w=trab(t.trabajadorId);label=esc(label||"Enviar recordatorio");
+  if(!w||!w.telefono)return `<button class="btn btn-ghost btn-sm ${cls||""}" data-act="recsintel">${I.bell} ${label}</button>`;
+  return `<a class="btn btn-ghost btn-sm ${cls||""}" data-act="recenviar" data-id="${t.id}" href="${esc(wa(w.telefono,msgRecordatorio(t)))}" target="_blank" rel="noopener">${I.bell} ${label}</a>`;
 }
 async function marcarRecordatorio(id,txt){
   const t=S.tareas.find(x=>x.id===id);if(!t)return;
@@ -1362,17 +1440,17 @@ function revisarRecordatorios(){
 }
 setInterval(revisarRecordatorios,30000);
 
-function msgWorker(t){const c=casa(t.casaId),d=parse(t.inicio);return `Hola ${trab(t.trabajadorId)?.nombre.split(" ")[0]||""}, se le asignó un trabajo:\n• ${t.tipo} en ${casaTxt(c)}\n• ${d?fLarga(d)+", "+hhmm(d):"Fecha por definir (la elige el propietario)"}\n• Tiempo estimado: ${durTxt(t.duracion)}${t.descripcion?"\n• Detalle: "+t.descripcion:""}`}
+function msgWorker(t){const c=casa(t.casaId),d=parse(t.inicio);return `Hola ${trab(t.trabajadorId)?.nombre.split(" ")[0]||""}, se le asignó un trabajo:\n• ${t.tipo} en ${casaTxt(c)}\n• ${d?fLarga(d)+", "+hhmm(d):"Fecha por definir (la elige el propietario)"}\n• Tiempo estimado: ${durTxt(t.duracion)}${enEquipo(t)?"\n• En equipo con: "+companerosTxt(t):""}${t.descripcion?"\n• Detalle: "+t.descripcion:""}`}
 function wa(phone,text){const p=String(phone||"").replace(/\D/g,"");const num=p.length===8?"506"+p:p;return "https://wa.me/"+(num||"")+"?text="+encodeURIComponent(text)}
 function sheetMensaje(s){
   const t=S.tareas.find(x=>x.id===s.id);if(!t)return head("Mensaje");
   const c=casa(t.casaId),w=trab(t.trabajadorId);const mo=msgOwner(t),mw=msgWorker(t);
-  return head(s.fresh?"Tarea guardada":"Enlace para el propietario",s.fresh?"El trabajador ya tiene el aviso en su app":esc(casaTxt(c)))+`<div class="stack">
+  return head(s.fresh?"Tarea guardada":"Enlace para el propietario",s.fresh?(enEquipo(t)?"Cada integrante del equipo ya tiene el aviso en su app":"El trabajador ya tiene el aviso en su app"):esc(casaTxt(c)))+`<div class="stack">
   ${S.supa&&!PUBLIC_URL&&!location.protocol.startsWith("http")?`<div class="alert bad">Está usando la app desde un archivo de su computadora: este enlace no le abrirá al propietario. Abra la app desde su dirección en línea y copie el enlace desde ahí.</div>`:""}
   <div class="field"><span class="lbl">Mensaje para ${esc(c&&c.propietario||"el propietario")}${c&&c.telefono?" · "+esc(c.telefono):""}</span><div class="msgbox" id="m-own">${esc(mo)}</div>
   <div class="row wrapr"><button class="btn btn-dark btn-sm" data-act="copy" data-t="m-own">Copiar mensaje</button><a class="btn btn-ghost btn-sm" href="${esc(wa(c&&c.telefono,mo))}" target="_blank" rel="noopener">Abrir en WhatsApp</a><button class="btn btn-ghost btn-sm" data-act="copylink" data-id="${t.id}">${I.link} Copiar solo el enlace</button></div></div>
-  <div class="field"><span class="lbl">Aviso para ${esc(w?w.nombre:"el trabajador")} (opcional, por WhatsApp)</span><div class="msgbox" id="m-wrk">${esc(mw)}</div>
-  <div class="row wrapr"><button class="btn btn-ghost btn-sm" data-act="copy" data-t="m-wrk">Copiar</button>${w&&w.telefono?`<a class="btn btn-ghost btn-sm" href="${esc(wa(w.telefono,mw))}" target="_blank" rel="noopener">Abrir en WhatsApp</a>`:""}</div></div>
+  ${(enEquipo(t)?grupoDe(t):[t]).map((m,i)=>{const wm=trab(m.trabajadorId),mm=m.id===t.id?mw:msgWorker(m);return `<div class="field"><span class="lbl">Aviso para ${esc(wm?wm.nombre:"el trabajador")} (opcional, por WhatsApp)</span><div class="msgbox" id="m-wrk${i}">${esc(mm)}</div>
+  <div class="row wrapr"><button class="btn btn-ghost btn-sm" data-act="copy" data-t="m-wrk${i}">Copiar</button>${wm&&wm.telefono?`<a class="btn btn-ghost btn-sm" href="${esc(wa(wm.telefono,mm))}" target="_blank" rel="noopener">Abrir en WhatsApp</a>`:""}</div></div>`}).join("")}
   <button class="btn btn-lime" data-act="det" data-id="${t.id}">Ver la tarea</button></div>`;
 }
 function sheetDrawer(){
@@ -1443,8 +1521,14 @@ document.addEventListener("click",async e=>{
     case "aplicarhora":el.disabled=true;await aplicarHora(id,el.dataset.s);break;
     case "guardarhora":{el.disabled=true;const s=document.getElementById("h-fecha").value+"T"+document.getElementById("h-hora").value;await aplicarHora(id,s,document.getElementById("h-trab").value);break}
     case "confcancel":{const t=S.tareas.find(x=>x.id===id);if(!t)break;el.disabled=true;const mot=document.getElementById("c-mot").value.trim();
-      try{await patch("tareas",id,{estado:"cancelada",motivo:mot,historial:hist(t,"Cancelada"+(mot?": "+mot:""))})}catch(er){el.disabled=false;break}
-      await aviso(t,`Cancelado: ${t.tipo} en ${casaTxt(casa(t.casaId))} ${t.inicio?"("+fCorta(parse(t.inicio))+")":""}`);toast("Tarea cancelada.");openSheet({kind:"mensaje",id});break}
+      // se cancela para todo el equipo
+      let fallo=false;
+      for(const m of abiertosGrupo(t)){
+        try{await patch("tareas",m.id,{estado:"cancelada",motivo:mot,historial:hist(m,"Cancelada"+(mot?": "+mot:""))})}catch(er){fallo=true;break}
+        await aviso(m,`Cancelado: ${m.tipo} en ${casaTxt(casa(m.casaId))} ${m.inicio?"("+fCorta(parse(m.inicio))+")":""}`);
+      }
+      if(fallo){el.disabled=false;break}
+      toast("Tarea cancelada.");openSheet({kind:"mensaje",id});break}
     case "rest":sheet.est=el.dataset.e;sheet.nota=document.getElementById("r-nota").value;sheet.dirty=true;openSheet(Object.assign(sheet,{_keep:true}));break;
     case "guardarrep":await guardarRep(id);break;
     case "confirmaropc":{const t=S.tareas.find(x=>x.id===id);const s=t.opciones[+el.dataset.i];if(conflictos(t.trabajadorId,s,t.duracion,id).length){toast("Esa opción ya está ocupada; elija otra o cambie la hora.");break}
@@ -1474,6 +1558,10 @@ document.addEventListener("click",async e=>{
     case "delcasa":openSheet({kind:"delcasa",id});break;
     case "confdelcasa":{const c=casa(id);el.disabled=true;try{await del("casas",id);closeSheet();toast((c?casaTxt(c):"Casa")+" eliminada.")}catch(er){el.disabled=false}break}
     case "exportar":if(db&&db.exportar)descargarRespaldo();break;
+    case "addtw":{const box=document.getElementById("n-trabs-extra");if(box){box.insertAdjacentHTML("beforeend",extraTrabHtml());box.lastElementChild.querySelector("select").focus();checkNueva()}break}
+    case "rmtw":el.closest(".n-tw-row")?.remove();checkNueva();break;
+    case "quitartw":el.disabled=true;await quitarDelEquipo(id);break;
+    case "agregartw":el.disabled=true;await agregarAlEquipo(id,el.dataset.w);break;
     case "recenviar":marcarRecordatorio(id,"Recordatorio enviado al trabajador por WhatsApp");break;
     case "recsintel":toast("Ese trabajador no tiene teléfono. Agréguelo en Equipo → Editar.");break;
     case "recomitir":await marcarRecordatorio(id,"Recordatorio marcado como avisado");toast("Listo.");break;
