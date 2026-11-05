@@ -65,6 +65,7 @@ h3{font-size:16px;font-weight:700}
 .btn-danger{background:var(--danger-soft);color:var(--danger)}
 .btn-sm{min-height:36px;padding:7px 14px;font-size:13.5px}
 .btn:disabled{opacity:.45;cursor:not-allowed}
+a.btn{text-decoration:none}
 .link{background:none;border:0;color:var(--ink);font-weight:700;padding:6px 0;display:inline-flex;gap:6px;align-items:center}
 
 /* cabecera */
@@ -250,6 +251,7 @@ button,a,label,.in{touch-action:manipulation;-webkit-tap-highlight-color:transpa
   .rem-main>.row.between{flex-direction:column-reverse;align-items:flex-start;gap:4px}
   .rem-main h3{font-size:15.5px}
   .rem-actions .btn{flex:1 1 calc(50% - 4px);padding-inline:8px}
+  .rem-actions .btn-rec{flex-basis:100%}
   .btn-sm{min-height:42px}
   .cal-head{margin-top:14px}
   .cal-head h1{font-size:22px}
@@ -441,7 +443,7 @@ async function restaurarRespaldo(file){
 const COLS={
   casas:["id","condominio","bloque","numero","propietario","telefono","fecha_entrega","demo","creado"],
   trabajadores:["id","nombre","telefono","especialidad","color","email","demo","creado"],
-  tareas:["id","casa_id","trabajador_id","tipo","descripcion","duracion","inicio","estado","fotos","nota","motivo","historial","creada","reportado_en","demo"],
+  tareas:["id","casa_id","trabajador_id","tipo","descripcion","duracion","inicio","estado","fotos","nota","motivo","historial","creada","reportado_en","recordatorio_en","demo"],
   avisos:["id","trabajador_id","tarea_id","texto","creado","leido"],
   config:["id","telefono"]
 };
@@ -549,6 +551,7 @@ async function cargarCita(token){
 // ---------- capacidades ----------
 async function init(){
   render();
+  registrarSW();
   let timer=null;
   if(!(window.claude&&claude.use)&&window.supabase&&SUPA_URL){
     S.supa=true;
@@ -591,6 +594,7 @@ function onData(key){
   }
   render();
   if(sheet&&sheet.kind==="detalle"&&!document.querySelector("#layer :focus")&&!sheet.dirty)openSheet(sheet);
+  if(key==="tareas")revisarRecordatorios();
 }
 async function put(col,id,data){
   if(!db||readOnly){toast("No tiene permiso para guardar cambios.");throw new Error("ro")}
@@ -700,6 +704,13 @@ function viewInicio(){
   </div>`;
 
 
+  // recordatorios 1 hora antes (solo administración)
+  if(isAdmin()&&ready){
+    const ne=notifEstado();
+    if(ne==="default")h+=`<div class="section card row wrapr between" style="padding:12px 16px;gap:10px"><span class="small">🔔 <b>Active las notificaciones</b> para que la app le avise 1 hora antes de cada tarea y le envíe el recordatorio al trabajador.</span><button class="btn btn-dark btn-sm" data-act="activarnotif">Activar</button></div>`;
+    const recs=pendRecordatorios();
+    if(recs.length)h+=`<div class="section" id="recordatorios"><div class="section-head"><h2>Recordatorios para enviar</h2><span class="muted small num">${recs.length}</span></div><div class="rem-list">${recs.map(recCard).join("")}</div></div>`;
+  }
   h+=`<div class="section"><div class="section-head"><h2>Próximas tareas</h2>${proximas.length?`<button class="link" data-act="go" data-h="semana">Ver semana ${I.next}</button>`:""}</div>`;
   if(!ready)h+=`<div class="card muted">Cargando programación…</div>`;
   else if(!proximas.length)h+=`<div class="card empty"><h3>Sin tareas próximas</h3><p>${isAdmin()?"Cuando asigne un trabajo aparecerá aquí como recordatorio, con opciones para posponer, cambiar la hora o cancelar.":"No tiene trabajos asignados por ahora. Le llegará un aviso cuando le asignen uno."}</p></div>`;
@@ -739,6 +750,7 @@ function remCard(t){
       </div>
     </div>
     ${isAdmin()?`<div class="rem-actions">
+      ${recBtn(t,"btn-rec")}
       <button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button>
       <button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>
       <button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button>
@@ -1110,6 +1122,7 @@ function sheetDetalle(s){
   if(!readOnly){
     if(d)h+=`<button class="btn btn-lime" data-act="reporte" data-id="${t.id}">${t.estado==="finalizada"||t.estado==="pendiente"?"Actualizar reporte y fotos":"Registrar avance (finalizada / pendiente)"}</button>`;
     if(isAdmin()&&abierta)h+=`<div class="row wrapr">${d?`<button class="btn btn-ghost btn-sm" data-act="posponer" data-id="${t.id}">Posponer</button><button class="btn btn-ghost btn-sm" data-act="hora" data-id="${t.id}">Cambiar hora</button>`:""}<button class="btn btn-ghost btn-sm" data-act="duracion" data-id="${t.id}">Modificar duración</button><button class="btn btn-danger btn-sm" data-act="cancelar" data-id="${t.id}">Cancelar</button></div>`;
+    if(isAdmin()&&t.estado==="programada"&&d)h+=`<div class="stack" style="gap:4px">${recBtn(t).replace("btn-sm","")}${t.recordatorioEn?`<span class="muted small" style="text-align:center">Último recordatorio: ${fCorta(new Date(t.recordatorioEn))} ${hhmm(new Date(t.recordatorioEn))}</span>`:""}</div>`;
     if(isAdmin())h+=`<button class="btn btn-dark" data-act="mensaje" data-id="${t.id}">${I.link} Enlace y mensaje para el propietario</button>`;
     if(isAdmin()&&t.estado==="pendiente")h+=`<button class="btn btn-ghost" data-act="seguimiento" data-id="${t.id}">Programar visita de seguimiento</button>`;
     if(isAdmin()&&t.estado==="cancelada")h+=`<button class="btn btn-ghost" data-act="reactivar" data-id="${t.id}">Reprogramar esta tarea</button>`;
@@ -1156,6 +1169,7 @@ async function aplicarHora(id,s,tw){
   const antes=parse(t.inicio);const cambioTrab=tw!==t.trabajadorId;
   const upd={inicio:s,trabajadorId:tw,historial:hist(t,`${antes?`Movida de ${fCorta(antes)} ${hhmm(antes)} a`:"Programada para"} ${fCorta(parse(s))} ${hhmm(parse(s))}${cambioTrab?" · reasignada a "+(trab(tw)?.nombre||""):""}`)};
   if(t.estado==="por_confirmar"){upd.estado="programada";upd.opciones=[]}
+  if(t.recordatorioEn)upd.recordatorioEn=null;   // con la nueva hora, el recordatorio se vuelve a pedir
   try{await patch("tareas",id,upd)}catch(e){return}
   const nt=Object.assign({},t,upd);
   await aviso(nt,`${cambioTrab?"Le asignaron":"Cambio de hora"}: ${t.tipo} en ${casaTxt(casa(t.casaId))}, ahora ${fCorta(parse(s))} ${hhmm(parse(s))}`);
@@ -1188,7 +1202,7 @@ async function guardarDur(id,m,nuevoInicio){
   const s=nuevoInicio||t.inicio;
   if(s){if(fueraJornada(s,m)){toast("Ese tiempo se sale de la jornada.");return}if(conflictos(t.trabajadorId,s,m,id).length){toast("Ese horario ya está ocupado.");return}}
   const upd={duracion:m,historial:hist(t,`Duración cambiada de ${durTxt(t.duracion)} a ${durTxt(m)}`+(nuevoInicio?` · movida a ${fCorta(parse(nuevoInicio))} ${hhmm(parse(nuevoInicio))}`:""))};
-  if(nuevoInicio)upd.inicio=nuevoInicio;
+  if(nuevoInicio){upd.inicio=nuevoInicio;if(t.recordatorioEn)upd.recordatorioEn=null}
   try{await patch("tareas",id,upd)}catch(e){return}
   const di=parse(s);
   await aviso(Object.assign({},t,upd),`Cambio de duración: ${t.tipo} en ${casaTxt(casa(t.casaId))}, ahora ${durTxt(m)}${di?` (${fCorta(di)} ${hhmm(di)} a ${hhmm(finT(di,m))})`:""}`);
@@ -1252,6 +1266,66 @@ function msgOwner(t){
   if(t.estado==="cancelada")return `${saludo}\n\nLe informamos que la visita${d?" programada para "+fLarga(d)+" a las "+hhmm(d):""} en ${casaTxt(c)} fue cancelada. Le contactaremos para reprogramarla.`;
   return `${saludo}\n\nLe confirmamos la visita de mantenimiento en ${casaTxt(c)}:\n• Trabajo: ${t.tipo}${t.descripcion?" – "+t.descripcion:""}\n• Técnico: ${w?w.nombre:""}\n• Fecha: ${fLarga(d)}\n• Hora: ${hhmm(d)} a ${hhmm(finT(d,t.duracion))} (aprox. ${durTxt(t.duracion)})\n\nDetalles de la visita:\n${linkFor(t.id)}`;
 }
+// ---------- recordatorio al trabajador 1 hora antes ----------
+function msgRecordatorio(t){
+  const c=casa(t.casaId),w=trab(t.trabajadorId),d=parse(t.inicio);
+  return `Hola ${w?w.nombre.split(" ")[0]:""}, le recuerdo su próximo trabajo:\n• ${sameDay(d,new Date())?"Hoy":fLarga(d)} a las ${hhmm(d)} (hasta ${hhmm(finT(d,t.duracion))})\n• ${t.tipo} en ${casaTxt(c)}${t.descripcion?"\n• Detalle: "+t.descripcion:""}\n\nPor favor confírmeme cuando vaya en camino. ¡Gracias!`;
+}
+function pendRecordatorios(){
+  if(!isAdmin())return [];
+  const now=new Date(),lim=addMin(now,60);
+  return S.tareas.filter(t=>{if(t.estado!=="programada"||!t.inicio||t.recordatorioEn||!t.trabajadorId)return false;const d=parse(t.inicio);return d>now&&d<=lim}).sort((a,b)=>a.inicio<b.inicio?-1:1);
+}
+function recCard(t){
+  const d=parse(t.inicio),c=casa(t.casaId),w=trab(t.trabajadorId);const mins=Math.max(0,Math.round((d-new Date())/60000));
+  return `<article class="rem" style="border-color:var(--lime)"><div class="rem-top" data-act="det" data-id="${t.id}" style="cursor:pointer"><div class="timebox"><b>${hhmmShort(d)}</b><span>${d.getHours()<12?"a. m.":"p. m."}</span></div>
+    <div class="rem-main"><div class="row between" style="align-items:flex-start"><h3>${esc(w?w.nombre:"Sin trabajador")}</h3><span class="pill st-por_confirmar">Empieza en ${mins} min</span></div>
+    <div style="font-weight:600;margin:2px 0 4px">${esc(t.tipo)}</div><div class="meta"><span>${I.home}${esc(casaTxt(c))}</span></div></div></div>
+    <div class="rem-actions">${w&&w.telefono?`<a class="btn btn-lime btn-sm" data-act="recenviar" data-id="${t.id}" href="${esc(wa(w.telefono,msgRecordatorio(t)))}" target="_blank" rel="noopener">Enviar por WhatsApp</a>`:`<span class="muted small" style="flex:1">Sin teléfono registrado: agréguelo en Equipo → Editar.</span>`}<button class="btn btn-ghost btn-sm" data-act="recomitir" data-id="${t.id}">Ya le avisé</button></div></article>`;
+}
+// botón "Enviar recordatorio" disponible en cada tarea programada
+function recBtn(t,cls){
+  if(t.estado!=="programada"||!t.inicio)return "";
+  const w=trab(t.trabajadorId);
+  if(!w||!w.telefono)return `<button class="btn btn-ghost btn-sm ${cls||""}" data-act="recsintel">${I.bell} Enviar recordatorio</button>`;
+  return `<a class="btn btn-ghost btn-sm ${cls||""}" data-act="recenviar" data-id="${t.id}" href="${esc(wa(w.telefono,msgRecordatorio(t)))}" target="_blank" rel="noopener">${I.bell} Enviar recordatorio</a>`;
+}
+async function marcarRecordatorio(id,txt){
+  const t=S.tareas.find(x=>x.id===id);if(!t)return;
+  try{await patch("tareas",id,{recordatorioEn:new Date().toISOString(),historial:hist(t,txt)})}catch(e){}
+}
+// notificaciones del teléfono / computadora
+let swReg=null;
+function notifSoportado(){return "Notification" in window&&window.isSecureContext&&location.protocol!=="file:"}
+async function registrarSW(){if(!("serviceWorker" in navigator)||!window.isSecureContext||location.protocol==="file:")return;try{swReg=await navigator.serviceWorker.register("sw.js")}catch(e){swReg=null}}
+async function activarNotif(){
+  if(!notifSoportado()){toast("Este navegador no permite notificaciones. En iPhone, instale primero la app en la pantalla de inicio.");return}
+  let p="default";try{p=await Notification.requestPermission()}catch(e){}
+  toast(p==="granted"?"Notificaciones activadas: le avisaremos 1 hora antes de cada tarea.":"No se activaron. Puede habilitarlas en los ajustes del navegador.");
+  if(p==="granted")revisarRecordatorios();
+  if(sheet)openSheet(Object.assign(sheet,{_keep:true}));else render();
+}
+function notifEstado(){if(!notifSoportado())return "no";try{return Notification.permission}catch(e){return "no"}}
+function revisarRecordatorios(){
+  const recs=pendRecordatorios();if(!recs.length)return;
+  let vistos;try{vistos=JSON.parse(lsGet("avisados")||"[]")}catch(e){vistos=[]}
+  const nuevos=recs.filter(t=>!vistos.includes(t.id+"@"+t.inicio));if(!nuevos.length)return;
+  for(const t of nuevos){
+    vistos.push(t.id+"@"+t.inicio);
+    const w=trab(t.trabajadorId),d=parse(t.inicio);
+    const title=`Recordatorio para ${w?w.nombre.split(" ")[0]:"el trabajador"} · ${hhmm(d)}`;
+    const body=`${t.tipo} en ${casaTxt(casa(t.casaId))}. Toque para enviarle el WhatsApp.`;
+    if(notifEstado()==="granted"){
+      const opts={body,tag:"rec-"+t.id,icon:"icon-192.png",badge:"icon-192.png",requireInteraction:true};
+      (swReg?swReg.showNotification(title,opts):Promise.reject()).catch(()=>{try{new Notification(title,opts)}catch(e){}});
+    }
+    toast("🔔 "+title);
+  }
+  lsSet("avisados",JSON.stringify(vistos.slice(-300)));
+  if(route().v==="inicio"&&!sheet)render();
+}
+setInterval(revisarRecordatorios,30000);
+
 function msgWorker(t){const c=casa(t.casaId),d=parse(t.inicio);return `Hola ${trab(t.trabajadorId)?.nombre.split(" ")[0]||""}, se le asignó un trabajo:\n• ${t.tipo} en ${casaTxt(c)}\n• ${d?fLarga(d)+", "+hhmm(d):"Fecha por definir (la elige el propietario)"}\n• Tiempo estimado: ${durTxt(t.duracion)}${t.descripcion?"\n• Detalle: "+t.descripcion:""}`}
 function wa(phone,text){const p=String(phone||"").replace(/\D/g,"");const num=p.length===8?"506"+p:p;return "https://wa.me/"+(num||"")+"?text="+encodeURIComponent(text)}
 function sheetMensaje(s){
@@ -1275,6 +1349,7 @@ function sheetDrawer(){
   ${S.rol==="trab"?"":`<div class="section stack"><span class="eyebrow">${S.supa?"Ver la app como":"Usar la app como"}</span><div class="choices"><button class="choice" data-act="modo" data-m="admin" aria-pressed="${modo==="admin"}">Administración</button>${S.trab.map(t=>`<button class="choice" data-act="modo" data-m="${t.id}" aria-pressed="${modo===t.id}">${esc(t.nombre)}</button>`).join("")}</div><p class="muted small" style="margin:0">${S.supa?"Vista previa de lo que ve cada trabajador. Ellos entran con su propio usuario y solo ven su agenda y sus avisos.":"Cada trabajador elige su nombre en su teléfono una vez; la app lo recuerda y le muestra solo su agenda y sus avisos."}</p></div>`}
   ${S.supa&&S.email?`<div class="section stack"><span class="eyebrow">Sesión</span><div class="row between wrapr"><span class="small">${esc(S.email)} · ${S.rol==="admin"?"Administración":"Trabajador"}</span><button class="btn btn-ghost btn-sm" data-act="logout">Cerrar sesión</button></div></div>`:""}
   ${isAdmin()&&!readOnly&&db?`<div class="section stack"><span class="eyebrow">Ajustes</span><div class="field"><label for="cfg-tel">Teléfono de coordinación (se muestra a propietarios)</label><div class="row"><input id="cfg-tel" class="in" value="${esc(S.config.telefono||"")}" inputmode="tel" placeholder="8888-8888"><button class="btn btn-dark btn-sm" data-act="savecfg">Guardar</button></div></div>
+  <div class="field"><span class="lbl">Recordatorios 1 hora antes</span><p class="muted small" style="margin:0">La app le avisa 1 hora antes de cada tarea para que le envíe el recordatorio por WhatsApp al trabajador. Funciona con la app abierta o en segundo plano.</p>${(()=>{const ne=notifEstado();return ne==="granted"?`<span class="small" style="color:var(--ok);font-weight:700">✓ Notificaciones activadas en este dispositivo</span>`:ne==="denied"?`<span class="small" style="color:var(--danger)">Bloqueadas en este navegador: habilítelas en los ajustes del sitio.</span>`:ne==="no"?`<span class="small muted">Este navegador no permite notificaciones${location.protocol==="https:"?" (en iPhone, instale la app en la pantalla de inicio)":" (abra la app desde su enlace en línea)"}. Igual verá los recordatorios en Inicio.</span>`:`<button class="btn btn-dark btn-sm" data-act="activarnotif" style="align-self:start">Activar notificaciones</button>`})()}</div>
   ${S.local||S.supa?`<div class="field"><span class="lbl">Respaldo${S.local?" (modo local)":""}</span><p class="muted small" style="margin:0">${S.local?"Los datos viven solo en este navegador. Si se borra el historial del navegador se pierden; guarde el respaldo en una carpeta segura.":"El plan gratuito no guarda copias automáticas: descargue un respaldo cada semana. Con «Importar» puede cargar un respaldo anterior a la base de datos."}</p><div class="row wrapr"><button class="btn btn-dark btn-sm" data-act="exportar">Descargar respaldo</button><label class="btn btn-ghost btn-sm" for="imp-file" style="cursor:pointer">${S.supa?"Importar respaldo":"Restaurar respaldo"}</label><input id="imp-file" type="file" accept=".json,application/json" hidden></div></div>`:""}
   ${S.casas.some(c=>c.demo)||S.trab.some(t=>t.demo)?`<button class="btn btn-danger btn-sm" data-act="borrardemo" style="align-self:start">Eliminar datos de ejemplo</button>`:""}</div>`:""}`;
 }
@@ -1363,6 +1438,10 @@ document.addEventListener("click",async e=>{
     case "delcasa":openSheet({kind:"delcasa",id});break;
     case "confdelcasa":{const c=casa(id);el.disabled=true;try{await del("casas",id);closeSheet();toast((c?casaTxt(c):"Casa")+" eliminada.")}catch(er){el.disabled=false}break}
     case "exportar":if(db&&db.exportar)descargarRespaldo();break;
+    case "recenviar":marcarRecordatorio(id,"Recordatorio enviado al trabajador por WhatsApp");break;
+    case "recsintel":toast("Ese trabajador no tiene teléfono. Agréguelo en Equipo → Editar.");break;
+    case "recomitir":await marcarRecordatorio(id,"Recordatorio marcado como avisado");toast("Listo.");break;
+    case "activarnotif":await activarNotif();break;
     case "duracion":openSheet({kind:"duracion",id});break;
     case "dusel":if(sheet&&sheet.kind==="duracion"){sheet.m=+el.dataset.m;openSheet(Object.assign(sheet,{_keep:true}))}break;
     case "guardardur":if(sheet&&sheet.kind==="duracion"){el.disabled=true;await guardarDur(id,sheet.m)}break;
